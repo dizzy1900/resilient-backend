@@ -1,0 +1,8 @@
+flask
+flask-cors
+earthengine-api
+pandas
+numpy
+scikit-learn
+gunicorn
+posthog
