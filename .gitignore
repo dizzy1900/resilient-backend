@@ -1,0 +1,7 @@
+# Model files (downloaded from GitHub Releases)
+*.pkl
+
+# Python
+.venv/
+__pycache__/
+*.pyc
