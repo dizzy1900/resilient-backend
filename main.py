@@ -19,9 +19,11 @@ CORS(app)
 
 # Model configuration
 MODEL_PATH = 'ag_surrogate.pkl'
+COASTAL_MODEL_PATH = 'coastal_surrogate.pkl'
 model = None
+coastal_model = None
 
-# Load model at startup (start.sh ensures the file exists)
+# Load models at startup (start.sh ensures the files exist)
 try:
     with open(MODEL_PATH, 'rb') as f:
         model = pickle.load(f)
@@ -30,6 +32,15 @@ except FileNotFoundError:
     print(f"Warning: Model file '{MODEL_PATH}' not found. Run start.sh or download manually.")
 except Exception as e:
     print(f"Warning: Failed to load model: {e}")
+
+try:
+    with open(COASTAL_MODEL_PATH, 'rb') as f:
+        coastal_model = pickle.load(f)
+    print(f"Coastal model loaded successfully from {COASTAL_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Coastal model file '{COASTAL_MODEL_PATH}' not found.")
+except Exception as e:
+    print(f"Warning: Failed to load coastal model: {e}")
 
 SEED_TYPES = {
     'standard': 0,
@@ -208,6 +219,91 @@ def predict():
         return jsonify({
             'status': 'error',
             'message': 'Invalid numeric values for temp/rain',
+            'code': 'INVALID_NUMERIC_VALUE'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Prediction failed: {str(e)}',
+            'code': 'PREDICTION_ERROR'
+        }), 500
+
+
+@app.route('/predict-coastal', methods=['POST'])
+@validate_json('wave_height', 'slope', 'mangrove_width_m')
+def predict_coastal():
+    """Predict coastal runup elevation with and without mangrove protection."""
+    if coastal_model is None:
+        return jsonify({
+            'status': 'error',
+            'message': 'Coastal model file not found. Ensure coastal_surrogate.pkl exists.',
+            'code': 'MODEL_NOT_FOUND'
+        }), 500
+
+    try:
+        data = request.get_json()
+        wave_height = float(data['wave_height'])
+        slope = float(data['slope'])
+        mangrove_width_m = float(data['mangrove_width_m'])
+
+        # Create DataFrames for both realities
+        # Reality A (Gray): No mangrove protection
+        reality_a_df = pd.DataFrame({
+            'wave_height': [wave_height],
+            'slope': [slope],
+            'mangrove_width_m': [0.0]
+        })
+
+        # Reality B (Green): With mangrove protection
+        reality_b_df = pd.DataFrame({
+            'wave_height': [wave_height],
+            'slope': [slope],
+            'mangrove_width_m': [mangrove_width_m]
+        })
+
+        # Run predictions
+        runup_a = float(coastal_model.predict(reality_a_df)[0])
+        runup_b = float(coastal_model.predict(reality_b_df)[0])
+
+        # Calculate reduction percentage
+        if runup_a > 0:
+            reduction_percent = ((runup_a - runup_b) / runup_a) * 100
+        else:
+            reduction_percent = 0.0
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'input_conditions': {
+                    'wave_height': wave_height,
+                    'slope': slope,
+                    'mangrove_width_m': mangrove_width_m
+                },
+                'predictions': {
+                    'reality_a_gray': {
+                        'description': 'Without mangrove protection',
+                        'mangrove_width_m': 0.0,
+                        'runup_elevation': round(runup_a, 4)
+                    },
+                    'reality_b_green': {
+                        'description': 'With mangrove protection',
+                        'mangrove_width_m': mangrove_width_m,
+                        'runup_elevation': round(runup_b, 4)
+                    }
+                },
+                'analysis': {
+                    'runup_a': round(runup_a, 4),
+                    'runup_b': round(runup_b, 4),
+                    'reduction_percent': round(reduction_percent, 2),
+                    'protection_effect': 'significant' if reduction_percent > 30 else 'moderate' if reduction_percent > 10 else 'minimal'
+                }
+            }
+        }), 200
+
+    except ValueError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid numeric values for wave_height/slope/mangrove_width_m',
             'code': 'INVALID_NUMERIC_VALUE'
         }), 400
     except Exception as e:
