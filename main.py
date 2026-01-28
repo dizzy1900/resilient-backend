@@ -282,13 +282,18 @@ def predict_coastal():
 
         runup_a = float(coastal_model.predict(scenario_a_df)[0])
         runup_b = float(coastal_model.predict(scenario_b_df)[0])
+        
+        # Calculate avoided runup
+        avoided_runup = runup_a - runup_b
 
         return jsonify({
             'status': 'success',
             'data': {
-                'runup_A': round(runup_a, 4),
-                'runup_B': round(runup_b, 4),
-                'storm_wave_height_used': round(wave_height, 2)
+                'runup_baseline': round(runup_a, 4),
+                'runup_resilient': round(runup_b, 4),
+                'avoided_runup': round(avoided_runup, 4),
+                'detected_slope_pct': round(slope, 2),
+                'storm_wave_height': round(wave_height, 2)
             }
         }), 200
 
