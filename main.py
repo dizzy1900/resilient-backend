@@ -245,6 +245,15 @@ def predict_coastal():
         lat = float(data['lat'])
         lon = float(data['lon'])
         mangrove_width = float(data['mangrove_width'])
+        
+        # Log the request for debugging (remove in production)
+        import sys
+        print(f"[COASTAL REQUEST] lat={lat}, lon={lon}, mangrove_width={mangrove_width}", file=sys.stderr, flush=True)
+        
+        # Handle minimum effective width - model shows negligible effect below 10m
+        if mangrove_width > 0 and mangrove_width < 10:
+            print(f"[WARNING] Mangrove width {mangrove_width}m is below minimum effective width. Using 10m minimum.", file=sys.stderr, flush=True)
+            mangrove_width = 10  # Set to minimum effective width
 
         if not (-90 <= lat <= 90):
             return jsonify({
