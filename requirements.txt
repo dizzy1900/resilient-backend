@@ -10,7 +10,7 @@ pandas>=2.1.0
 numpy>=1.26.0
 
 # Machine Learning
-scikit-learn>=1.4.0
+scikit-learn==1.6.1
 
 # Production Server
 gunicorn>=21.2.0
