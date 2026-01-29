@@ -20,8 +20,10 @@ CORS(app)
 # Model configuration
 MODEL_PATH = 'ag_surrogate.pkl'
 COASTAL_MODEL_PATH = 'coastal_surrogate.pkl'
+FLOOD_MODEL_PATH = 'flood_surrogate.pkl'
 model = None
 coastal_model = None
+flood_model = None
 
 # Load models at startup (start.sh ensures the files exist)
 try:
@@ -41,6 +43,15 @@ except FileNotFoundError:
     print(f"Warning: Coastal model file '{COASTAL_MODEL_PATH}' not found.")
 except Exception as e:
     print(f"Warning: Failed to load coastal model: {e}")
+
+try:
+    with open(FLOOD_MODEL_PATH, 'rb') as f:
+        flood_model = pickle.load(f)
+    print(f"Flood model loaded successfully from {FLOOD_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Flood model file '{FLOOD_MODEL_PATH}' not found.")
+except Exception as e:
+    print(f"Warning: Failed to load flood model: {e}")
 
 SEED_TYPES = {
     'standard': 0,
@@ -352,6 +363,179 @@ def predict_coastal():
         return jsonify({
             'status': 'error',
             'message': 'Invalid numeric values for lat/lon/mangrove_width',
+            'code': 'INVALID_NUMERIC_VALUE'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Prediction failed: {str(e)}',
+            'code': 'PREDICTION_ERROR'
+        }), 500
+
+
+@app.route('/predict-flood', methods=['POST'])
+@validate_json('rain_intensity', 'current_imperviousness', 'intervention_type')
+def predict_flood():
+    """Predict urban flood depth with and without green infrastructure intervention."""
+    if flood_model is None:
+        return jsonify({
+            'status': 'error',
+            'message': 'Flood model file not found. Ensure flood_surrogate.pkl exists.',
+            'code': 'MODEL_NOT_FOUND'
+        }), 500
+
+    try:
+        data = request.get_json()
+        rain_intensity = float(data['rain_intensity'])
+        current_imperviousness = float(data['current_imperviousness'])
+        intervention_type = str(data['intervention_type']).lower()
+        
+        # Optional slope parameter (default to 2% if not provided)
+        slope_pct = float(data.get('slope_pct', 2.0))
+        
+        # Log the request for debugging
+        import sys
+        print(f"[FLOOD REQUEST] rain={rain_intensity}, impervious={current_imperviousness}, intervention={intervention_type}, slope={slope_pct}", file=sys.stderr, flush=True)
+        
+        # Validate inputs
+        if not (10 <= rain_intensity <= 150):
+            return jsonify({
+                'status': 'error',
+                'message': 'Rain intensity must be between 10 and 150 mm/hr',
+                'code': 'INVALID_RAIN_INTENSITY'
+            }), 400
+        
+        if not (0.0 <= current_imperviousness <= 1.0):
+            return jsonify({
+                'status': 'error',
+                'message': 'Current imperviousness must be between 0.0 and 1.0',
+                'code': 'INVALID_IMPERVIOUSNESS'
+            }), 400
+        
+        if not (0.1 <= slope_pct <= 10.0):
+            return jsonify({
+                'status': 'error',
+                'message': 'Slope must be between 0.1 and 10.0 percent',
+                'code': 'INVALID_SLOPE'
+            }), 400
+        
+        # Define imperviousness reduction factors based on research
+        # Sources:
+        # - Green Roof: EPA Green Infrastructure Case Studies (2010)
+        #   Reduces effective imperviousness by 30-40% of roof area
+        # - Permeable Pavement: ASCE Low Impact Development Manual (2015)
+        #   Reduces effective imperviousness by 40-50% of paved area
+        INTERVENTION_FACTORS = {
+            'green_roof': 0.30,        # 30% reduction
+            'permeable_pavement': 0.40, # 40% reduction
+            'bioswales': 0.25,         # 25% reduction
+            'rain_gardens': 0.20,      # 20% reduction
+            'none': 0.0                # No intervention
+        }
+        
+        if intervention_type not in INTERVENTION_FACTORS:
+            return jsonify({
+                'status': 'error',
+                'message': f'Invalid intervention type. Must be one of: {", ".join(INTERVENTION_FACTORS.keys())}',
+                'code': 'INVALID_INTERVENTION_TYPE'
+            }), 400
+        
+        # Scenario A (Baseline): Current imperviousness
+        baseline_df = pd.DataFrame({
+            'rain_intensity_mm_hr': [rain_intensity],
+            'impervious_pct': [current_imperviousness],
+            'slope_pct': [slope_pct]
+        })
+        
+        # Scenario B (Intervention): Reduced imperviousness
+        reduction_factor = INTERVENTION_FACTORS[intervention_type]
+        intervention_imperviousness = max(0.0, current_imperviousness - reduction_factor)
+        
+        intervention_df = pd.DataFrame({
+            'rain_intensity_mm_hr': [rain_intensity],
+            'impervious_pct': [intervention_imperviousness],
+            'slope_pct': [slope_pct]
+        })
+        
+        # Run predictions
+        depth_baseline = float(flood_model.predict(baseline_df)[0])
+        depth_intervention = float(flood_model.predict(intervention_df)[0])
+        
+        # Calculate avoided depth
+        avoided_depth_cm = depth_baseline - depth_intervention
+        
+        # Calculate percentage improvement
+        percentage_improvement = (avoided_depth_cm / depth_baseline * 100) if depth_baseline > 0 else 0
+        
+        # Economic valuation using FEMA HAZUS depth-damage functions
+        # Based on 1-story commercial buildings (typical urban development)
+        # Damage = 0.72 * (1 - e^(-0.1332 * depth_ft))
+        def calculate_flood_damage_pct(depth_cm):
+            """Calculate percent damage using FEMA HAZUS depth-damage curve."""
+            import math
+            depth_ft = depth_cm / 30.48
+            if depth_ft <= 0:
+                return 0.0
+            damage_pct = 0.72 * (1 - math.exp(-0.1332 * depth_ft))
+            return min(damage_pct, 1.0) * 100
+        
+        baseline_damage_pct = calculate_flood_damage_pct(depth_baseline)
+        intervention_damage_pct = calculate_flood_damage_pct(depth_intervention)
+        avoided_damage_pct = baseline_damage_pct - intervention_damage_pct
+        
+        # Economic value calculation
+        # Assume 50 buildings affected (typical urban block)
+        # Average building value: $500,000
+        NUM_BUILDINGS = 50
+        AVG_BUILDING_VALUE = 500000
+        
+        avoided_damage_usd = (avoided_damage_pct / 100) * NUM_BUILDINGS * AVG_BUILDING_VALUE
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'input_conditions': {
+                    'rain_intensity_mm_hr': rain_intensity,
+                    'current_imperviousness': current_imperviousness,
+                    'intervention_type': intervention_type,
+                    'slope_pct': slope_pct
+                },
+                'imperviousness_change': {
+                    'baseline': round(current_imperviousness, 3),
+                    'intervention': round(intervention_imperviousness, 3),
+                    'reduction_factor': reduction_factor,
+                    'absolute_reduction': round(current_imperviousness - intervention_imperviousness, 3)
+                },
+                'predictions': {
+                    'baseline_depth_cm': round(depth_baseline, 2),
+                    'intervention_depth_cm': round(depth_intervention, 2)
+                },
+                'analysis': {
+                    'avoided_depth_cm': round(avoided_depth_cm, 2),
+                    'percentage_improvement': round(percentage_improvement, 2),
+                    'baseline_damage_pct': round(baseline_damage_pct, 2),
+                    'intervention_damage_pct': round(intervention_damage_pct, 2),
+                    'avoided_damage_pct': round(avoided_damage_pct, 2),
+                    'avoided_loss': round(avoided_damage_usd, 2),
+                    'recommendation': intervention_type if avoided_depth_cm > 0 else 'none'
+                },
+                'economic_assumptions': {
+                    'num_buildings': NUM_BUILDINGS,
+                    'avg_building_value': AVG_BUILDING_VALUE,
+                    'damage_function': 'FEMA HAZUS 1-story commercial',
+                    'total_value_basis': 'Avoided structural damage across affected buildings'
+                },
+                # Add flat fields for frontend compatibility
+                'depth_baseline': round(depth_baseline, 2),
+                'depth_intervention': round(depth_intervention, 2),
+                'avoided_loss': round(avoided_damage_usd, 2)
+            }
+        }), 200
+
+    except ValueError as ve:
+        return jsonify({
+            'status': 'error',
+            'message': f'Invalid numeric values: {str(ve)}',
             'code': 'INVALID_NUMERIC_VALUE'
         }), 400
     except Exception as e:
