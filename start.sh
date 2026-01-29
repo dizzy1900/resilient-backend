@@ -2,11 +2,13 @@
 
 MODEL_URL="${MODEL_URL:-https://github.com/dizzy1900/adaptmetric-backend/releases/download/v1.1.0/ag_surrogate.pkl}"
 COASTAL_MODEL_URL="${COASTAL_MODEL_URL:-https://github.com/dizzy1900/adaptmetric-backend/releases/download/v1.1.0/coastal_surrogate.pkl}"
+FLOOD_MODEL_URL="${FLOOD_MODEL_URL:-https://github.com/dizzy1900/adaptmetric-backend/releases/download/v1.2.0/flood_surrogate.pkl}"
 MIN_MODEL_SIZE=10000000  # 10MB minimum expected size
 
 echo "=== Model Download Setup ==="
 echo "Agricultural Model URL: $MODEL_URL"
 echo "Coastal Model URL: $COASTAL_MODEL_URL"
+echo "Flood Model URL: $FLOOD_MODEL_URL"
 
 # Download or validate models using Python
 python3 << 'PYTHON_SCRIPT'
@@ -68,6 +70,7 @@ def download_model(model_url, model_path, min_size):
 # Get environment variables
 ag_model_url = os.environ.get("MODEL_URL", "https://github.com/dizzy1900/adaptmetric-backend/releases/download/v1.1.0/ag_surrogate.pkl")
 coastal_model_url = os.environ.get("COASTAL_MODEL_URL", "https://github.com/dizzy1900/adaptmetric-backend/releases/download/v1.1.0/coastal_surrogate.pkl")
+flood_model_url = os.environ.get("FLOOD_MODEL_URL", "https://github.com/dizzy1900/adaptmetric-backend/releases/download/v1.2.0/flood_surrogate.pkl")
 min_size = 10_000_000  # 10MB
 
 print("\n=== Downloading Models ===")
@@ -78,9 +81,33 @@ success_ag = download_model(ag_model_url, "ag_surrogate.pkl", min_size)
 # Download coastal model (smaller, so use 5MB minimum)
 success_coastal = download_model(coastal_model_url, "coastal_surrogate.pkl", 5_000_000)
 
+# Download flood model (large, use 10MB minimum)
+# If download fails, we'll train it locally
+success_flood = download_model(flood_model_url, "flood_surrogate.pkl", min_size)
+
 if not success_ag or not success_coastal:
-    print("\n=== ERROR: Model download failed ===")
+    print("\n=== ERROR: Critical model download failed ===")
     sys.exit(1)
+
+# If flood model download failed, train it locally
+if not success_flood:
+    print("\n=== Flood model not available, training locally ===")
+    import subprocess
+    try:
+        result = subprocess.run(["python3", "train_flood_surrogate.py"], 
+                              capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            print("✅ Flood model trained successfully")
+            success_flood = True
+        else:
+            print(f"❌ Training failed: {result.stderr}")
+            print("⚠️  Continuing without flood model (endpoint will return 500)")
+    except subprocess.TimeoutExpired:
+        print("❌ Training timed out after 5 minutes")
+        print("⚠️  Continuing without flood model (endpoint will return 500)")
+    except Exception as e:
+        print(f"❌ Training error: {e}")
+        print("⚠️  Continuing without flood model (endpoint will return 500)")
 
 print("\n=== All models downloaded successfully ===")
 PYTHON_SCRIPT
