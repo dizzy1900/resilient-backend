@@ -15,7 +15,16 @@ from flask_cors import CORS
 from gee_connector import get_weather_data, get_coastal_params
 
 app = Flask(__name__)
-CORS(app)
+# Enable CORS for all origins (Lovable uses multiple domains)
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False
+    }
+})
 
 # Model configuration
 MODEL_PATH = 'ag_surrogate.pkl'
