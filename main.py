@@ -399,12 +399,14 @@ def predict_flood():
         current_imperviousness = float(data['current_imperviousness'])
         intervention_type = str(data['intervention_type']).lower()
         
-        # Optional slope parameter (default to 2% if not provided)
+        # Optional parameters with defaults
         slope_pct = float(data.get('slope_pct', 2.0))
+        building_value = float(data.get('building_value', 750000))  # Use frontend value or default
+        num_buildings = int(data.get('num_buildings', 1))  # Default to 1 building
         
         # Log the request for debugging
         import sys
-        print(f"[FLOOD REQUEST] rain={rain_intensity}, impervious={current_imperviousness}, intervention={intervention_type}, slope={slope_pct}", file=sys.stderr, flush=True)
+        print(f"[FLOOD REQUEST] rain={rain_intensity}, impervious={current_imperviousness}, intervention={intervention_type}, slope={slope_pct}, building_value=${building_value}, num_buildings={num_buildings}", file=sys.stderr, flush=True)
         
         # Validate inputs
         if not (10 <= rain_intensity <= 150):
@@ -493,12 +495,9 @@ def predict_flood():
         avoided_damage_pct = baseline_damage_pct - intervention_damage_pct
         
         # Economic value calculation
-        # Assume 50 buildings affected (typical urban block)
-        # Average building value: $500,000
-        NUM_BUILDINGS = 50
-        AVG_BUILDING_VALUE = 500000
-        
-        avoided_damage_usd = (avoided_damage_pct / 100) * NUM_BUILDINGS * AVG_BUILDING_VALUE
+        # Use building_value and num_buildings from request, or defaults
+        # This allows frontend to control the economic calculation
+        avoided_damage_usd = (avoided_damage_pct / 100) * num_buildings * building_value
         
         return jsonify({
             'status': 'success',
@@ -507,7 +506,9 @@ def predict_flood():
                     'rain_intensity_mm_hr': rain_intensity,
                     'current_imperviousness': current_imperviousness,
                     'intervention_type': intervention_type,
-                    'slope_pct': slope_pct
+                    'slope_pct': slope_pct,
+                    'building_value': building_value,
+                    'num_buildings': num_buildings
                 },
                 'imperviousness_change': {
                     'baseline': round(current_imperviousness, 3),
@@ -529,8 +530,9 @@ def predict_flood():
                     'recommendation': intervention_type if avoided_depth_cm > 0 else 'none'
                 },
                 'economic_assumptions': {
-                    'num_buildings': NUM_BUILDINGS,
-                    'avg_building_value': AVG_BUILDING_VALUE,
+                    'num_buildings': num_buildings,
+                    'avg_building_value': building_value,
+                    'total_value_at_risk': num_buildings * building_value,
                     'damage_function': 'FEMA HAZUS 1-story commercial',
                     'total_value_basis': 'Avoided structural damage across affected buildings'
                 },
