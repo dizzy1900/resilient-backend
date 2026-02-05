@@ -85,8 +85,9 @@ def simulate_maize_yield(temp: float, rain: float, seed_type: int, temp_delta: f
         yield_pct *= rain_factor
     elif simulated_rain > OPTIMAL_RAINFALL_MAX_MM:
         # Excess rainfall: waterlogging reduces yield
+        # Gentler penalty: 5% loss per 100mm excess
         excess_rain = simulated_rain - OPTIMAL_RAINFALL_MAX_MM
-        waterlog_loss = min(excess_rain / 1000.0 * 20.0, 30.0)  # Max 30% loss
+        waterlog_loss = (excess_rain / 100.0) * 5.0  # 5% per 100mm
         
         # Resilient seeds tolerate waterlogging better
         if seed_type == 1:
