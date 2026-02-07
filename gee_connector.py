@@ -254,3 +254,109 @@ def get_monthly_data(lat: float, lon: float) -> dict:
         'rainfall_monthly_mm': rainfall_monthly_mm,
         'soil_moisture_monthly': soil_moisture_monthly
     }
+
+
+def analyze_spatial_viability(lat: float, lon: float, temp_increase_c: float) -> dict:
+    """
+    Analyze spatial viability of cropland under temperature increase scenarios.
+    
+    Creates a 50km buffer around the location and analyzes how much cropland
+    remains viable under future temperature conditions.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+        temp_increase_c: Temperature increase in Celsius (e.g., 2.0 for +2°C)
+    
+    Returns:
+        Dictionary with:
+        - 'baseline_sq_km': Viable cropland area under current temperatures
+        - 'future_sq_km': Viable cropland area under future temperatures
+        - 'loss_pct': Percentage loss of viable cropland
+    """
+    authenticate_gee()
+    
+    # Create 50km buffer around the point
+    point = ee.Geometry.Point([lon, lat])
+    buffer = point.buffer(50000)  # 50km in meters
+    
+    # Load land cover data - ESA WorldCover 10m (2021)
+    # Class 40 = Cropland
+    land_cover = ee.ImageCollection('ESA/WorldCover/v200') \
+        .first() \
+        .select('Map')
+    
+    # Create cropland mask (value 40 = Cropland)
+    cropland_mask = land_cover.eq(40)
+    
+    # Get baseline temperature data (hottest months: July-August)
+    # Use most recent full year
+    current_date = datetime.now()
+    year = current_date.year - 1
+    
+    # Peak heat period: July 1 - August 31
+    peak_start = f'{year}-07-01'
+    peak_end = f'{year}-08-31'
+    
+    # Get maximum temperature during peak heat period
+    temp_collection = ee.ImageCollection('ECMWF/ERA5_LAND/DAILY_AGGR') \
+        .filterBounds(buffer) \
+        .filterDate(peak_start, peak_end) \
+        .select('temperature_2m_max')
+    
+    # Get the maximum temperature across the peak period
+    baseline_temp_kelvin = temp_collection.max()
+    
+    # Convert from Kelvin to Celsius
+    baseline_temp_celsius = baseline_temp_kelvin.subtract(273.15)
+    
+    # Create future temperature scenario
+    future_temp_celsius = baseline_temp_celsius.add(temp_increase_c)
+    
+    # Temperature viability threshold for maize (35°C)
+    # Above this temperature, heat stress severely impacts crop viability
+    TEMP_THRESHOLD = 35.0
+    
+    # Create viability masks (1 = viable, 0 = not viable)
+    baseline_viable = baseline_temp_celsius.lt(TEMP_THRESHOLD).And(cropland_mask)
+    future_viable = future_temp_celsius.lt(TEMP_THRESHOLD).And(cropland_mask)
+    
+    # Calculate pixel areas in square meters
+    # Each pixel represents an area, multiply by pixel area
+    pixel_area = ee.Image.pixelArea()
+    
+    # Calculate total viable area for baseline
+    baseline_area_m2 = baseline_viable.multiply(pixel_area).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=buffer,
+        scale=1000,  # 1km resolution for faster processing
+        maxPixels=1e9
+    ).get('temperature_2m_max')
+    
+    # Calculate total viable area for future
+    future_area_m2 = future_viable.multiply(pixel_area).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=buffer,
+        scale=1000,
+        maxPixels=1e9
+    ).get('temperature_2m_max')
+    
+    # Convert to getInfo() to retrieve values
+    baseline_area_m2 = ee.Number(baseline_area_m2).getInfo()
+    future_area_m2 = ee.Number(future_area_m2).getInfo()
+    
+    # Convert from square meters to square kilometers
+    baseline_sq_km = baseline_area_m2 / 1_000_000
+    future_sq_km = future_area_m2 / 1_000_000
+    
+    # Calculate loss percentage
+    if baseline_sq_km > 0:
+        loss_pct = ((baseline_sq_km - future_sq_km) / baseline_sq_km) * 100
+    else:
+        loss_pct = 0.0
+    
+    return {
+        'baseline_sq_km': round(baseline_sq_km, 2),
+        'future_sq_km': round(future_sq_km, 2),
+        'loss_pct': round(loss_pct, 2)
+    }
