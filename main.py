@@ -16,6 +16,7 @@ from flask_cors import CORS
 from gee_connector import get_weather_data, get_coastal_params, get_monthly_data, analyze_spatial_viability
 from batch_processor import run_batch_job
 from physics_engine import simulate_maize_yield
+from coastal_engine import analyze_flood_risk
 
 app = Flask(__name__)
 # Enable CORS for all origins (Lovable uses multiple domains)
@@ -535,6 +536,78 @@ def predict_coastal():
             'status': 'error',
             'message': f'Prediction failed: {str(e)}',
             'code': 'PREDICTION_ERROR'
+        }), 500
+
+
+@app.route('/predict-coastal-flood', methods=['POST'])
+@validate_json('lat', 'lon', 'slr_projection')
+def predict_coastal_flood():
+    """Predict coastal flood risk based on sea level rise and storm surge."""
+    try:
+        data = request.get_json()
+        lat = float(data['lat'])
+        lon = float(data['lon'])
+        slr_projection = float(data['slr_projection'])
+        include_surge = data.get('include_surge', False)
+        
+        # Log the request for debugging
+        import sys
+        print(f"[COASTAL FLOOD REQUEST] lat={lat}, lon={lon}, slr_projection={slr_projection}, include_surge={include_surge}", file=sys.stderr, flush=True)
+        
+        # Validate coordinates
+        if not (-90 <= lat <= 90):
+            return jsonify({
+                'status': 'error',
+                'message': 'Latitude must be between -90 and 90',
+                'code': 'INVALID_LATITUDE'
+            }), 400
+        
+        if not (-180 <= lon <= 180):
+            return jsonify({
+                'status': 'error',
+                'message': 'Longitude must be between -180 and 180',
+                'code': 'INVALID_LONGITUDE'
+            }), 400
+        
+        if slr_projection < 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'Sea level rise projection must be non-negative',
+                'code': 'INVALID_SLR_PROJECTION'
+            }), 400
+        
+        # Set surge based on include_surge flag
+        surge_m = 2.5 if include_surge else 0.0
+        
+        # Call coastal engine to analyze flood risk
+        flood_risk = analyze_flood_risk(lat, lon, slr_projection, surge_m)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'input_conditions': {
+                    'lat': lat,
+                    'lon': lon,
+                    'slr_projection_m': slr_projection,
+                    'include_surge': include_surge,
+                    'surge_m': surge_m,
+                    'total_water_level_m': slr_projection + surge_m
+                },
+                'flood_risk': flood_risk
+            }
+        }), 200
+    
+    except ValueError:
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid numeric values for lat/lon/slr_projection',
+            'code': 'INVALID_NUMERIC_VALUE'
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Flood risk analysis failed: {str(e)}',
+            'code': 'FLOOD_RISK_ERROR'
         }), 500
 
 
