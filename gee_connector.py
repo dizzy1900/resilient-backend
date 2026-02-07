@@ -175,3 +175,82 @@ def get_coastal_params(lat: float, lon: float) -> dict:
         'slope_pct': slope_pct,
         'max_wave_height': max_wave_height
     }
+
+
+def get_monthly_data(lat: float, lon: float) -> dict:
+    """
+    Get monthly weather data for charts from ERA5-Land dataset.
+    
+    Fetches data for the most recent full year, returning 12 monthly values
+    for rainfall and soil moisture.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+    
+    Returns:
+        Dictionary with:
+        - 'rainfall_monthly_mm': List of 12 monthly rainfall values (Jan-Dec) in mm
+        - 'soil_moisture_monthly': List of 12 monthly soil moisture values (Jan-Dec)
+    """
+    authenticate_gee()
+    
+    point = ee.Geometry.Point([lon, lat])
+    
+    # Determine the most recent full year
+    current_date = datetime.now()
+    if current_date.month == 1:
+        # If January, use previous year as most recent full year
+        year = current_date.year - 1
+    else:
+        # Check if current year data is available (use previous year to be safe)
+        year = current_date.year - 1
+    
+    start_date = f'{year}-01-01'
+    end_date = f'{year}-12-31'
+    
+    # Get monthly data from ERA5-Land
+    monthly_data = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY') \
+        .filterBounds(point) \
+        .filterDate(start_date, end_date) \
+        .select(['total_precipitation', 'volumetric_soil_water_layer_1'])
+    
+    # Sort by system:time_start to ensure chronological order
+    monthly_data = monthly_data.sort('system:time_start')
+    
+    # Get the list of images
+    image_list = monthly_data.toList(monthly_data.size())
+    
+    rainfall_monthly_mm = []
+    soil_moisture_monthly = []
+    
+    # Process each month
+    for i in range(12):
+        try:
+            image = ee.Image(image_list.get(i))
+            
+            # Extract values at the point
+            values = image.reduceRegion(
+                reducer=ee.Reducer.mean(),
+                geometry=point,
+                scale=11132
+            ).getInfo()
+            
+            # Total precipitation: convert from meters to mm
+            precip_m = values.get('total_precipitation', 0)
+            rainfall_monthly_mm.append(precip_m * 1000)
+            
+            # Volumetric soil water layer 1 (already in correct units)
+            soil_moisture = values.get('volumetric_soil_water_layer_1', 0)
+            soil_moisture_monthly.append(soil_moisture)
+            
+        except Exception as e:
+            print(f"[WARNING] Error processing month {i+1}: {e}")
+            # Use 0 as fallback for missing months
+            rainfall_monthly_mm.append(0)
+            soil_moisture_monthly.append(0)
+    
+    return {
+        'rainfall_monthly_mm': rainfall_monthly_mm,
+        'soil_moisture_monthly': soil_moisture_monthly
+    }
