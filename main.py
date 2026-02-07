@@ -13,7 +13,7 @@ import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from gee_connector import get_weather_data, get_coastal_params
+from gee_connector import get_weather_data, get_coastal_params, get_monthly_data
 from batch_processor import run_batch_job
 from physics_engine import simulate_maize_yield
 
@@ -227,6 +227,14 @@ def predict():
                 base_rain = weather_data['total_precip_mm']
                 data_source = 'gee_auto_lookup'
                 
+                # Fetch monthly data for charts
+                try:
+                    monthly_data = get_monthly_data(lat, lon)
+                except Exception as monthly_error:
+                    import sys
+                    print(f"Monthly data error: {monthly_error}", file=sys.stderr, flush=True)
+                    monthly_data = None
+                
             except Exception as gee_error:
                 import sys
                 print(f"GEE error, using fallback: {gee_error}", file=sys.stderr, flush=True)
@@ -235,12 +243,14 @@ def predict():
                 base_temp = FALLBACK_WEATHER['max_temp_celsius']
                 base_rain = FALLBACK_WEATHER['total_rain_mm']
                 data_source = 'fallback'
+                monthly_data = None
         
         # Mode B: Manual fallback using temp/rain
         elif 'temp' in data and 'rain' in data:
             base_temp = float(data['temp'])
             base_rain = float(data['rain'])
             data_source = 'manual'
+            monthly_data = None
         
         else:
             return jsonify({
@@ -284,38 +294,76 @@ def predict():
         else:
             percentage_improvement = 0.0
         
+        # Build chart_data if monthly data is available
+        chart_data = None
+        if monthly_data is not None:
+            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            rainfall_baseline = monthly_data['rainfall_monthly_mm']
+            soil_moisture_baseline = monthly_data['soil_moisture_monthly']
+            
+            # Apply rainfall projection logic with summer drought penalty
+            rainfall_projected = []
+            for i, baseline_value in enumerate(rainfall_baseline):
+                month_index = i  # 0 = Jan, 5 = Jun, 6 = Jul, 7 = Aug
+                
+                # Base projection: apply rain_change percentage
+                projected_value = baseline_value * (1 + rain_change / 100)
+                
+                # Advanced: If drought (negative rain_change), apply double penalty to summer months
+                if rain_change < 0:
+                    # Summer months: June (5), July (6), August (7)
+                    if month_index in [5, 6, 7]:
+                        # Apply double penalty: compound the negative change
+                        additional_penalty = abs(rain_change) / 100
+                        projected_value = projected_value * (1 - additional_penalty)
+                
+                rainfall_projected.append(round(projected_value, 2))
+            
+            chart_data = {
+                'months': months,
+                'rainfall_baseline': [round(v, 2) for v in rainfall_baseline],
+                'rainfall_projected': rainfall_projected,
+                'soil_moisture_baseline': [round(v, 4) for v in soil_moisture_baseline]
+            }
+        
+        response_data = {
+            'input_conditions': {
+                'max_temp_celsius': base_temp,
+                'total_rain_mm': base_rain,
+                'data_source': data_source
+            },
+            'predictions': {
+                'standard_seed': {
+                    'type_code': SEED_TYPES['standard'],
+                    'predicted_yield': round(standard_yield, 2)
+                },
+                'resilient_seed': {
+                    'type_code': SEED_TYPES['resilient'],
+                    'predicted_yield': round(resilient_yield, 2)
+                }
+            },
+            'analysis': {
+                'avoided_loss': round(avoided_loss, 2),
+                'percentage_improvement': round(percentage_improvement, 2),
+                'recommendation': 'resilient' if avoided_loss > 0 else 'standard'
+            },
+            'simulation_debug': {
+                'raw_temp': round(base_temp, 2),
+                'perturbation_added': round(temp_increase, 2),
+                'final_simulated_temp': round(final_simulated_temp, 2),
+                'raw_rain': round(base_rain, 2),
+                'rain_modifier': round(rain_change, 2),
+                'final_simulated_rain': round(final_simulated_rain, 2)
+            }
+        }
+        
+        # Add chart_data if available
+        if chart_data is not None:
+            response_data['chart_data'] = chart_data
+        
         return jsonify({
             'status': 'success',
-            'data': {
-                'input_conditions': {
-                    'max_temp_celsius': base_temp,
-                    'total_rain_mm': base_rain,
-                    'data_source': data_source
-                },
-                'predictions': {
-                    'standard_seed': {
-                        'type_code': SEED_TYPES['standard'],
-                        'predicted_yield': round(standard_yield, 2)
-                    },
-                    'resilient_seed': {
-                        'type_code': SEED_TYPES['resilient'],
-                        'predicted_yield': round(resilient_yield, 2)
-                    }
-                },
-                'analysis': {
-                    'avoided_loss': round(avoided_loss, 2),
-                    'percentage_improvement': round(percentage_improvement, 2),
-                    'recommendation': 'resilient' if avoided_loss > 0 else 'standard'
-                },
-                'simulation_debug': {
-                    'raw_temp': round(base_temp, 2),
-                    'perturbation_added': round(temp_increase, 2),
-                    'final_simulated_temp': round(final_simulated_temp, 2),
-                    'raw_rain': round(base_rain, 2),
-                    'rain_modifier': round(rain_change, 2),
-                    'final_simulated_rain': round(final_simulated_rain, 2)
-                }
-            }
+            'data': response_data
         }), 200
         
     except ValueError:
