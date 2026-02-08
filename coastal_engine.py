@@ -89,3 +89,47 @@ def analyze_flood_risk(lat: float, lon: float, slr_meters: float, surge_meters: 
         'flood_depth_m': round(flood_depth_m, 2),
         'risk_category': risk_category
     }
+
+
+def calculate_flood_frequency(slr_meters: float) -> dict:
+    """
+    Calculate flood frequency depths for different storm return periods.
+    
+    Uses research-based baseline surge heights and projects future depths
+    by adding sea level rise.
+    
+    Args:
+        slr_meters: Sea level rise in meters (e.g., 0.5 for 50cm)
+    
+    Returns:
+        Dictionary with:
+        - 'storm_chart_data': List of objects with period, current_depth, future_depth
+    """
+    # Baseline Surge Heights (from research)
+    base_surges = {
+        '1yr': 0.6,
+        '10yr': 1.2,
+        '50yr': 1.9,
+        '100yr': 2.5
+    }
+    
+    # Calculate future depths by adding sea level rise
+    storm_chart_data = []
+    
+    for period, current_depth in base_surges.items():
+        future_depth = current_depth + slr_meters
+        
+        storm_chart_data.append({
+            'period': period,
+            'current_depth': round(current_depth, 2),
+            'future_depth': round(future_depth, 2)
+        })
+    
+    # Sort by severity (1yr, 10yr, 50yr, 100yr)
+    # Define custom sort order
+    period_order = {'1yr': 1, '10yr': 2, '50yr': 3, '100yr': 4}
+    storm_chart_data.sort(key=lambda x: period_order.get(x['period'], 999))
+    
+    return {
+        'storm_chart_data': storm_chart_data
+    }
