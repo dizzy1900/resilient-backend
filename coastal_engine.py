@@ -133,3 +133,91 @@ def calculate_flood_frequency(slr_meters: float) -> dict:
     return {
         'storm_chart_data': storm_chart_data
     }
+
+
+def analyze_urban_impact(lat: float, lon: float, total_water_level: float) -> dict:
+    """
+    Analyze urban flood impact within a 5km buffer around a coastal location.
+    
+    Identifies built-up areas using land cover data and calculates how much
+    urban area will be flooded based on elevation and water level.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+        total_water_level: Combined sea level rise + surge in meters
+    
+    Returns:
+        Dictionary with:
+        - 'total_urban_km2': Total urban/built-up area in square kilometers
+        - 'flooded_urban_km2': Urban area that will be flooded in square kilometers
+        - 'urban_impact_pct': Percentage of urban area impacted
+    """
+    authenticate_gee()
+    
+    # Create 5km buffer around the point
+    point = ee.Geometry.Point([lon, lat])
+    buffer = point.buffer(5000)  # 5km in meters
+    
+    # Load ESA WorldCover 10m land cover dataset
+    # Class 50 = Built-up
+    land_cover = ee.ImageCollection('ESA/WorldCover/v200') \
+        .first() \
+        .select('Map')
+    
+    # Create built-up area mask (value 50 = Built-up)
+    urban_mask = land_cover.eq(50)
+    
+    # Load NASA NASADEM elevation data
+    elevation = ee.Image('NASA/NASADEM_HGT/001').select('elevation')
+    
+    # Create flood mask (areas where elevation < total_water_level)
+    flood_mask = elevation.lt(total_water_level)
+    
+    # Combine masks: urban areas that are flooded
+    flooded_urban_mask = urban_mask.And(flood_mask)
+    
+    # Calculate pixel areas in square meters
+    pixel_area = ee.Image.pixelArea()
+    
+    # Calculate total urban area
+    total_urban_area_m2 = urban_mask.multiply(pixel_area).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=buffer,
+        scale=100,  # 100m resolution for faster processing
+        maxPixels=1e9
+    ).get('Map')
+    
+    # Calculate flooded urban area
+    flooded_urban_area_m2 = flooded_urban_mask.multiply(pixel_area).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=buffer,
+        scale=100,
+        maxPixels=1e9
+    ).get('Map')
+    
+    # Convert to Python values
+    total_urban_area_m2 = ee.Number(total_urban_area_m2).getInfo()
+    flooded_urban_area_m2 = ee.Number(flooded_urban_area_m2).getInfo()
+    
+    # Handle None values (no urban area found)
+    if total_urban_area_m2 is None:
+        total_urban_area_m2 = 0.0
+    if flooded_urban_area_m2 is None:
+        flooded_urban_area_m2 = 0.0
+    
+    # Convert from square meters to square kilometers
+    total_urban_km2 = total_urban_area_m2 / 1_000_000
+    flooded_urban_km2 = flooded_urban_area_m2 / 1_000_000
+    
+    # Calculate impact percentage
+    if total_urban_km2 > 0:
+        urban_impact_pct = (flooded_urban_km2 / total_urban_km2) * 100
+    else:
+        urban_impact_pct = 0.0
+    
+    return {
+        'total_urban_km2': round(total_urban_km2, 2),
+        'flooded_urban_km2': round(flooded_urban_km2, 2),
+        'urban_impact_pct': round(urban_impact_pct, 2)
+    }
