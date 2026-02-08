@@ -16,7 +16,7 @@ from flask_cors import CORS
 from gee_connector import get_weather_data, get_coastal_params, get_monthly_data, analyze_spatial_viability
 from batch_processor import run_batch_job
 from physics_engine import simulate_maize_yield
-from coastal_engine import analyze_flood_risk
+from coastal_engine import analyze_flood_risk, analyze_urban_impact
 
 app = Flask(__name__)
 # Enable CORS for all origins (Lovable uses multiple domains)
@@ -579,22 +579,45 @@ def predict_coastal_flood():
         # Set surge based on include_surge flag
         surge_m = 2.5 if include_surge else 0.0
         
+        # Calculate total water level
+        total_water_level = slr_projection + surge_m
+        
         # Call coastal engine to analyze flood risk
         flood_risk = analyze_flood_risk(lat, lon, slr_projection, surge_m)
         
+        # Call coastal engine to analyze urban impact (spatial analysis)
+        # This may take 2-3 seconds due to GEE processing
+        spatial_analysis = None
+        try:
+            import sys
+            print(f"[SPATIAL] Running urban impact analysis for lat={lat}, lon={lon}, water_level={total_water_level}m", file=sys.stderr, flush=True)
+            spatial_analysis = analyze_urban_impact(lat, lon, total_water_level)
+            print(f"[SPATIAL] Complete: {spatial_analysis}", file=sys.stderr, flush=True)
+        except Exception as spatial_error:
+            import sys
+            print(f"Spatial analysis error: {spatial_error}", file=sys.stderr, flush=True)
+            spatial_analysis = None
+        
+        # Build response data
+        response_data = {
+            'input_conditions': {
+                'lat': lat,
+                'lon': lon,
+                'slr_projection_m': slr_projection,
+                'include_surge': include_surge,
+                'surge_m': surge_m,
+                'total_water_level_m': total_water_level
+            },
+            'flood_risk': flood_risk
+        }
+        
+        # Add spatial_analysis if available
+        if spatial_analysis is not None:
+            response_data['spatial_analysis'] = spatial_analysis
+        
         return jsonify({
             'status': 'success',
-            'data': {
-                'input_conditions': {
-                    'lat': lat,
-                    'lon': lon,
-                    'slr_projection_m': slr_projection,
-                    'include_surge': include_surge,
-                    'surge_m': surge_m,
-                    'total_water_level_m': slr_projection + surge_m
-                },
-                'flood_risk': flood_risk
-            }
+            'data': response_data
         }), 200
     
     except ValueError:
