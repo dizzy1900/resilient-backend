@@ -133,3 +133,48 @@ def analyze_flash_flood(lat: float, lon: float, rain_intensity_increase_pct: flo
         'future_flood_area_km2': round(future_flood_km2, 2),
         'risk_increase_pct': round(risk_increase_pct, 2)
     }
+
+
+def calculate_rainfall_frequency(intensity_increase_pct: float) -> dict:
+    """
+    Calculate rainfall frequency depths for different storm return periods.
+    
+    Uses research-based baseline rainfall depths and projects future depths
+    based on intensity increase percentage.
+    
+    Args:
+        intensity_increase_pct: Percentage increase in rainfall intensity (e.g., 10 for +10%)
+    
+    Returns:
+        Dictionary with:
+        - 'rain_chart_data': List of objects with period, baseline_mm, future_mm
+    """
+    # Baseline Rainfall Depths (from research - in millimeters)
+    baseline_depths = {
+        '1yr': 70.0,
+        '10yr': 121.5,
+        '50yr': 159.7,
+        '100yr': 179.4
+    }
+    
+    # Calculate future depths by applying intensity increase
+    rain_chart_data = []
+    
+    for period, baseline_mm in baseline_depths.items():
+        # Future depth = baseline * (1 + intensity_increase%)
+        future_mm = baseline_mm * (1 + (intensity_increase_pct / 100))
+        
+        rain_chart_data.append({
+            'period': period,
+            'baseline_mm': round(baseline_mm, 2),
+            'future_mm': round(future_mm, 2)
+        })
+    
+    # Sort by severity (1yr, 10yr, 50yr, 100yr)
+    # Define custom sort order
+    period_order = {'1yr': 1, '10yr': 2, '50yr': 3, '100yr': 4}
+    rain_chart_data.sort(key=lambda x: period_order.get(x['period'], 999))
+    
+    return {
+        'rain_chart_data': rain_chart_data
+    }
