@@ -15,7 +15,7 @@ from flask_cors import CORS
 
 from gee_connector import get_weather_data, get_coastal_params, get_monthly_data, analyze_spatial_viability
 from batch_processor import run_batch_job
-from physics_engine import simulate_maize_yield
+from physics_engine import simulate_maize_yield, calculate_yield
 from coastal_engine import analyze_flood_risk, analyze_urban_impact
 from flood_engine import analyze_flash_flood, calculate_rainfall_frequency, analyze_infrastructure_risk
 from financial_engine import calculate_roi_metrics, calculate_npv, calculate_payback_period
@@ -194,6 +194,17 @@ def predict():
     try:
         data = request.get_json()
         
+        # Get crop type (default to 'maize' for backwards compatibility)
+        crop_type = data.get('crop_type', 'maize').lower()
+        
+        # Validate crop type
+        if crop_type not in ['maize', 'cocoa']:
+            return jsonify({
+                'status': 'error',
+                'message': f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa'",
+                'code': 'INVALID_CROP_TYPE'
+            }), 400
+        
         # Mode A: Auto-Lookup using lat/lon (Priority)
         if 'lat' in data and 'lon' in data:
             lat = float(data['lat'])
@@ -281,18 +292,20 @@ def predict():
         final_simulated_rain = max(0.0, base_rain * rain_modifier)
         
         # Run predictions using physics engine with climate perturbation
-        standard_yield = simulate_maize_yield(
+        standard_yield = calculate_yield(
             temp=base_temp,
             rain=base_rain,
             seed_type=SEED_TYPES['standard'],
+            crop_type=crop_type,
             temp_delta=temp_increase,
             rain_pct_change=rain_change
         )
         
-        resilient_yield = simulate_maize_yield(
+        resilient_yield = calculate_yield(
             temp=base_temp,
             rain=base_rain,
             seed_type=SEED_TYPES['resilient'],
+            crop_type=crop_type,
             temp_delta=temp_increase,
             rain_pct_change=rain_change
         )
@@ -427,7 +440,8 @@ def predict():
             'input_conditions': {
                 'max_temp_celsius': base_temp,
                 'total_rain_mm': base_rain,
-                'data_source': data_source
+                'data_source': data_source,
+                'crop_type': crop_type
             },
             'predictions': {
                 'standard_seed': {
