@@ -1349,6 +1349,158 @@ def calculate_financials():
         }), 500
 
 
+@app.route('/predict-health', methods=['POST'])
+@validate_json('lat', 'lon', 'workforce_size', 'daily_wage')
+def predict_health():
+    """
+    Predict climate-related health impacts including heat stress and malaria risk.
+    
+    Analyzes WBGT-based productivity loss and malaria transmission risk.
+    """
+    if not request.is_json:
+        return jsonify({
+            'status': 'error',
+            'message': 'Request must be JSON',
+            'code': 'INVALID_CONTENT_TYPE'
+        }), 400
+    
+    try:
+        from health_engine import calculate_productivity_loss, calculate_malaria_risk, calculate_health_economic_impact
+        from datetime import datetime, timedelta
+        
+        data = request.get_json()
+        lat = float(data['lat'])
+        lon = float(data['lon'])
+        workforce_size = int(data['workforce_size'])
+        daily_wage = float(data['daily_wage'])
+        
+        # Log the request for debugging
+        import sys
+        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}", file=sys.stderr, flush=True)
+        
+        # Validate coordinates
+        if not (-90 <= lat <= 90):
+            return jsonify({
+                'status': 'error',
+                'message': 'Latitude must be between -90 and 90',
+                'code': 'INVALID_LATITUDE'
+            }), 400
+        
+        if not (-180 <= lon <= 180):
+            return jsonify({
+                'status': 'error',
+                'message': 'Longitude must be between -180 and 180',
+                'code': 'INVALID_LONGITUDE'
+            }), 400
+        
+        if workforce_size <= 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'Workforce size must be positive',
+                'code': 'INVALID_WORKFORCE_SIZE'
+            }), 400
+        
+        if daily_wage <= 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'Daily wage must be positive',
+                'code': 'INVALID_DAILY_WAGE'
+            }), 400
+        
+        # Fetch climate data from Google Earth Engine
+        try:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365)
+            
+            weather_data = get_weather_data(
+                lat=lat,
+                lon=lon,
+                start_date=start_date.strftime('%Y-%m-%d'),
+                end_date=end_date.strftime('%Y-%m-%d')
+            )
+            
+            temp_c = weather_data['max_temp_celsius']
+            precip_mm = weather_data['total_precip_mm']
+            
+            # Estimate humidity (simplified - using precipitation as proxy)
+            # In production, would use actual humidity data
+            # Rough approximation: Higher precip correlates with higher humidity
+            # Typical range: 40-90% depending on climate
+            if precip_mm < 500:
+                humidity_pct = 50.0  # Dry climate
+            elif precip_mm < 1000:
+                humidity_pct = 65.0  # Moderate
+            else:
+                humidity_pct = 80.0  # Humid/tropical
+            
+            print(f"[HEALTH] Climate data: temp={temp_c}°C, precip={precip_mm}mm, humidity_est={humidity_pct}%", file=sys.stderr, flush=True)
+            
+        except Exception as weather_error:
+            print(f"Weather data error: {weather_error}", file=sys.stderr, flush=True)
+            return jsonify({
+                'status': 'error',
+                'message': f'Failed to fetch climate data: {str(weather_error)}',
+                'code': 'WEATHER_DATA_ERROR'
+            }), 500
+        
+        # Calculate productivity loss from heat stress
+        productivity_analysis = calculate_productivity_loss(temp_c, humidity_pct)
+        
+        # Calculate malaria risk
+        malaria_analysis = calculate_malaria_risk(temp_c, precip_mm)
+        
+        # Calculate economic impact
+        economic_impact = calculate_health_economic_impact(
+            workforce_size=workforce_size,
+            daily_wage=daily_wage,
+            productivity_loss_pct=productivity_analysis['productivity_loss_pct'],
+            malaria_risk_score=malaria_analysis['risk_score']
+        )
+        
+        print(f"[HEALTH] WBGT={productivity_analysis['wbgt_estimate']}°C, loss={productivity_analysis['productivity_loss_pct']}%, malaria_risk={malaria_analysis['risk_category']}", file=sys.stderr, flush=True)
+        
+        # Build response
+        response_data = {
+            'location': {
+                'lat': lat,
+                'lon': lon
+            },
+            'climate_conditions': {
+                'temperature_c': round(temp_c, 1),
+                'precipitation_mm': round(precip_mm, 1),
+                'humidity_pct_estimated': humidity_pct
+            },
+            'heat_stress_analysis': productivity_analysis,
+            'malaria_risk_analysis': malaria_analysis,
+            'economic_impact': economic_impact,
+            'workforce_parameters': {
+                'workforce_size': workforce_size,
+                'daily_wage': daily_wage,
+                'currency': 'USD'
+            }
+        }
+        
+        return jsonify({
+            'status': 'success',
+            'data': response_data
+        }), 200
+    
+    except ValueError as ve:
+        return jsonify({
+            'status': 'error',
+            'message': f'Invalid numeric values: {str(ve)}',
+            'code': 'INVALID_NUMERIC_VALUE'
+        }), 400
+    except Exception as e:
+        import sys
+        print(f"Health prediction error: {e}", file=sys.stderr, flush=True)
+        return jsonify({
+            'status': 'error',
+            'message': f'Health analysis failed: {str(e)}',
+            'code': 'HEALTH_ERROR'
+        }), 500
+
+
 @app.route('/predict-portfolio', methods=['POST'])
 def predict_portfolio():
     """
