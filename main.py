@@ -1140,6 +1140,209 @@ def calculate_financials():
         }), 500
 
 
+@app.route('/predict-portfolio', methods=['POST'])
+def predict_portfolio():
+    """
+    Analyze portfolio diversification across multiple locations.
+    
+    Simulates 10 years of climate variation for each location and
+    calculates aggregate tonnage and portfolio volatility.
+    """
+    if not request.is_json:
+        return jsonify({
+            'status': 'error',
+            'message': 'Request must be JSON',
+            'code': 'INVALID_CONTENT_TYPE'
+        }), 400
+    
+    try:
+        import random
+        import sys
+        from physics_engine import calculate_volatility
+        
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'locations' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing required field: locations',
+                'code': 'MISSING_FIELDS'
+            }), 400
+        
+        locations = data['locations']
+        crop_type = data.get('crop_type', 'maize').lower()
+        
+        # Validate crop type
+        if crop_type not in ['maize', 'cocoa']:
+            return jsonify({
+                'status': 'error',
+                'message': f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa'",
+                'code': 'INVALID_CROP_TYPE'
+            }), 400
+        
+        # Validate locations is a list
+        if not isinstance(locations, list) or len(locations) == 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'locations must be a non-empty list',
+                'code': 'INVALID_LOCATIONS'
+            }), 400
+        
+        print(f"[PORTFOLIO] Processing {len(locations)} locations for crop_type={crop_type}", file=sys.stderr, flush=True)
+        
+        # Portfolio metrics
+        all_location_cvs = []
+        total_tonnage = 0.0
+        location_results = []
+        
+        # Process each location
+        for idx, loc in enumerate(locations):
+            if 'lat' not in loc or 'lon' not in loc:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Location {idx} missing lat or lon',
+                    'code': 'INVALID_LOCATION_COORDS'
+                }), 400
+            
+            lat = float(loc['lat'])
+            lon = float(loc['lon'])
+            
+            # Validate coordinates
+            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Location {idx} has invalid coordinates',
+                    'code': 'INVALID_COORDINATES'
+                }), 400
+            
+            print(f"[PORTFOLIO] Location {idx+1}/{len(locations)}: lat={lat}, lon={lon}", file=sys.stderr, flush=True)
+            
+            # Fetch weather data from GEE
+            try:
+                from datetime import datetime, timedelta
+                
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=365)
+                
+                weather_data = get_weather_data(
+                    lat=lat,
+                    lon=lon,
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d')
+                )
+                
+                base_temp = weather_data['max_temp_celsius']
+                base_rain = weather_data['total_precip_mm']
+                
+            except Exception as weather_error:
+                print(f"Weather data error for location {idx}: {weather_error}", file=sys.stderr, flush=True)
+                return jsonify({
+                    'status': 'error',
+                    'message': f'Failed to fetch weather data for location {idx}: {str(weather_error)}',
+                    'code': 'WEATHER_DATA_ERROR'
+                }), 500
+            
+            # Simulate 10 years of climate variation with resilient seed
+            # Each year has random climate perturbations to simulate natural variability
+            years = 10
+            annual_yields = []
+            
+            for year in range(years):
+                # Simulate climate variability:
+                # Temperature: ±2°C random variation
+                # Rainfall: ±15% random variation
+                temp_variation = random.uniform(-2.0, 2.0)
+                rain_variation = random.uniform(-15.0, 15.0)
+                
+                # Calculate yield for this year using resilient seed
+                year_yield = calculate_yield(
+                    temp=base_temp,
+                    rain=base_rain,
+                    seed_type=SEED_TYPES['resilient'],
+                    crop_type=crop_type,
+                    temp_delta=temp_variation,
+                    rain_pct_change=rain_variation
+                )
+                
+                annual_yields.append(year_yield)
+            
+            # Calculate statistics for this location
+            import statistics
+            mean_yield = statistics.mean(annual_yields)
+            location_cv = calculate_volatility(annual_yields)
+            
+            # Assume 1 hectare per location for tonnage calculation
+            # Tonnage = (mean_yield / 100) * max_potential_tons_per_hectare
+            # For simplicity, assume max potential = 10 tons/ha
+            max_potential_tons = 10.0
+            location_tonnage = (mean_yield / 100.0) * max_potential_tons
+            
+            total_tonnage += location_tonnage
+            all_location_cvs.append(location_cv)
+            
+            location_results.append({
+                'location_index': idx,
+                'lat': lat,
+                'lon': lon,
+                'mean_yield_pct': round(mean_yield, 2),
+                'volatility_cv_pct': location_cv,
+                'tonnage': round(location_tonnage, 2)
+            })
+            
+            print(f"[PORTFOLIO] Location {idx+1} complete: mean_yield={mean_yield:.2f}%, CV={location_cv:.2f}%, tonnage={location_tonnage:.2f}t", file=sys.stderr, flush=True)
+        
+        # Calculate portfolio-level volatility (average of all CVs)
+        portfolio_volatility = statistics.mean(all_location_cvs) if all_location_cvs else 0.0
+        
+        # Determine risk rating based on portfolio volatility
+        if portfolio_volatility < 10.0:
+            risk_rating = "Low"
+        elif portfolio_volatility < 20.0:
+            risk_rating = "Medium"
+        elif portfolio_volatility < 30.0:
+            risk_rating = "High"
+        else:
+            risk_rating = "Very High"
+        
+        print(f"[PORTFOLIO] Complete: total_tonnage={total_tonnage:.2f}t, portfolio_volatility={portfolio_volatility:.2f}%, risk={risk_rating}", file=sys.stderr, flush=True)
+        
+        return jsonify({
+            'status': 'success',
+            'data': {
+                'portfolio_summary': {
+                    'total_tonnage': round(total_tonnage, 2),
+                    'portfolio_volatility_pct': round(portfolio_volatility, 2),
+                    'risk_rating': risk_rating,
+                    'num_locations': len(locations),
+                    'crop_type': crop_type
+                },
+                'locations': location_results,
+                'risk_interpretation': {
+                    'low': '0-10% CV: Very stable production',
+                    'medium': '10-20% CV: Moderate variation',
+                    'high': '20-30% CV: Significant variation',
+                    'very_high': '30%+ CV: Highly volatile'
+                }
+            }
+        }), 200
+    
+    except ValueError as ve:
+        return jsonify({
+            'status': 'error',
+            'message': f'Invalid numeric values: {str(ve)}',
+            'code': 'INVALID_NUMERIC_VALUE'
+        }), 400
+    except Exception as e:
+        import sys
+        print(f"Portfolio error: {e}", file=sys.stderr, flush=True)
+        return jsonify({
+            'status': 'error',
+            'message': f'Portfolio analysis failed: {str(e)}',
+            'code': 'PORTFOLIO_ERROR'
+        }), 500
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({

@@ -205,3 +205,43 @@ def simulate_maize_yield(temp: float, rain: float, seed_type: int, temp_delta: f
     Redirects to calculate_yield with crop_type='maize'.
     """
     return calculate_yield(temp, rain, seed_type, 'maize', temp_delta, rain_pct_change)
+
+
+def calculate_volatility(yield_history_list: list) -> float:
+    """
+    Calculate yield volatility using Coefficient of Variation (CV).
+    
+    CV measures the relative variability of yields over time.
+    Higher CV = more volatile/risky production.
+    
+    Args:
+        yield_history_list: List of annual yields (e.g., [85, 40, 90, 20, ...])
+    
+    Returns:
+        Coefficient of Variation as percentage (float)
+        
+    Example:
+        >>> yields = [85, 40, 90, 20, 75]
+        >>> cv = calculate_volatility(yields)
+        >>> print(f"CV: {cv:.1f}%")
+        CV: 38.7%
+    """
+    import statistics
+    
+    if not yield_history_list or len(yield_history_list) < 2:
+        return 0.0
+    
+    # Calculate mean
+    mean_yield = statistics.mean(yield_history_list)
+    
+    # Avoid division by zero
+    if mean_yield == 0:
+        return 0.0
+    
+    # Calculate standard deviation
+    std_dev = statistics.stdev(yield_history_list)
+    
+    # Calculate Coefficient of Variation as percentage
+    cv = (std_dev / mean_yield) * 100
+    
+    return round(cv, 2)
