@@ -708,6 +708,55 @@ def predict_coastal_flood():
         if spatial_analysis is not None:
             response_data['spatial_analysis'] = spatial_analysis
         
+        # Infrastructure ROI Analysis (optional)
+        infrastructure_roi = None
+        if 'infrastructure_params' in data and 'intervention_params' in data:
+            try:
+                from infrastructure_engine import calculate_infrastructure_roi
+                
+                infra_params = data['infrastructure_params']
+                intervention_params = data['intervention_params']
+                
+                # Get parameters with validation
+                asset_value = float(infra_params.get('asset_value', 0))
+                daily_revenue = float(infra_params.get('daily_revenue', 0))
+                
+                capex = float(intervention_params.get('capex', 0))
+                opex = float(intervention_params.get('opex', 0))
+                intervention_type = intervention_params.get('type', 'sea_wall')
+                
+                # Use flood depth from flood_risk analysis
+                flood_depth = flood_risk.get('flood_depth_m', 0.0)
+                
+                # Only calculate if we have valid inputs and flooding exists
+                if asset_value > 0 and flood_depth > 0:
+                    import sys
+                    print(f"[INFRASTRUCTURE ROI] Calculating for flood_depth={flood_depth}m, asset_value=${asset_value}, intervention={intervention_type}", file=sys.stderr, flush=True)
+                    
+                    infrastructure_roi = calculate_infrastructure_roi(
+                        flood_depth_m=flood_depth,
+                        asset_value=asset_value,
+                        daily_revenue=daily_revenue,
+                        project_capex=capex,
+                        project_opex=opex,
+                        intervention_type=intervention_type,
+                        analysis_years=20,
+                        discount_rate=0.10,
+                        wall_height_m=intervention_params.get('wall_height_m', 2.0),
+                        drainage_reduction_m=intervention_params.get('drainage_reduction_m', 0.3)
+                    )
+                    
+                    print(f"[INFRASTRUCTURE ROI] Complete: NPV=${infrastructure_roi['financial_analysis']['npv']:,.0f}, BCR={infrastructure_roi['financial_analysis']['bcr']:.2f}", file=sys.stderr, flush=True)
+                    
+            except Exception as roi_error:
+                import sys
+                print(f"Infrastructure ROI error: {roi_error}", file=sys.stderr, flush=True)
+                infrastructure_roi = None
+        
+        # Add infrastructure_roi if available
+        if infrastructure_roi is not None:
+            response_data['infrastructure_roi'] = infrastructure_roi
+        
         return jsonify({
             'status': 'success',
             'data': response_data
@@ -796,6 +845,58 @@ def predict_flash_flood():
         # Add spatial_analysis if available
         if spatial_analysis is not None:
             response_data['spatial_analysis'] = spatial_analysis
+        
+        # Infrastructure ROI Analysis (optional)
+        infrastructure_roi = None
+        if 'infrastructure_params' in data and 'intervention_params' in data:
+            try:
+                from infrastructure_engine import calculate_infrastructure_roi
+                
+                infra_params = data['infrastructure_params']
+                intervention_params = data['intervention_params']
+                
+                # Get parameters with validation
+                asset_value = float(infra_params.get('asset_value', 0))
+                daily_revenue = float(infra_params.get('daily_revenue', 0))
+                
+                capex = float(intervention_params.get('capex', 0))
+                opex = float(intervention_params.get('opex', 0))
+                intervention_type = intervention_params.get('type', 'drainage')  # Default drainage for flash floods
+                
+                # Estimate flood depth from flash flood analysis
+                # Use a simple heuristic: baseline flood area correlates with depth
+                # For flash floods, assume average depth of 0.5m for significant flooding
+                baseline_area = flash_flood_analysis.get('baseline_flood_area_km2', 0.0)
+                estimated_flood_depth = 0.5 if baseline_area > 0 else 0.0
+                
+                # Only calculate if we have valid inputs and flooding exists
+                if asset_value > 0 and estimated_flood_depth > 0:
+                    import sys
+                    print(f"[INFRASTRUCTURE ROI] Calculating for estimated_depth={estimated_flood_depth}m, asset_value=${asset_value}, intervention={intervention_type}", file=sys.stderr, flush=True)
+                    
+                    infrastructure_roi = calculate_infrastructure_roi(
+                        flood_depth_m=estimated_flood_depth,
+                        asset_value=asset_value,
+                        daily_revenue=daily_revenue,
+                        project_capex=capex,
+                        project_opex=opex,
+                        intervention_type=intervention_type,
+                        analysis_years=20,
+                        discount_rate=0.10,
+                        wall_height_m=intervention_params.get('wall_height_m', 2.0),
+                        drainage_reduction_m=intervention_params.get('drainage_reduction_m', 0.3)
+                    )
+                    
+                    print(f"[INFRASTRUCTURE ROI] Complete: NPV=${infrastructure_roi['financial_analysis']['npv']:,.0f}, BCR={infrastructure_roi['financial_analysis']['bcr']:.2f}", file=sys.stderr, flush=True)
+                    
+            except Exception as roi_error:
+                import sys
+                print(f"Infrastructure ROI error: {roi_error}", file=sys.stderr, flush=True)
+                infrastructure_roi = None
+        
+        # Add infrastructure_roi if available
+        if infrastructure_roi is not None:
+            response_data['infrastructure_roi'] = infrastructure_roi
         
         return jsonify({
             'status': 'success',
