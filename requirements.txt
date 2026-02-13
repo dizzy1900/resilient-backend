@@ -54,12 +54,12 @@ idna==3.11
 
 # Database (Supabase Client)
 supabase==2.12.0       # Supabase Python client for PostgreSQL
-httpx==0.27.2          # Async HTTP client (required by supabase)
-postgrest==0.18.2      # PostgREST client (required by supabase)
-realtime==2.0.8        # Realtime client (required by supabase)
-storage3==0.8.2        # Supabase storage client
-supafunc==0.5.2        # Supabase functions client
-gotrue==2.10.3         # Supabase auth client
+httpx==0.27.2          # Async HTTP client (required by supabase <0.29,>=0.26)
+postgrest==0.19.3      # PostgREST client (required by supabase <0.20,>=0.19)
+realtime==2.7.0        # Realtime client (required by supabase <3.0.0,>=2.0.0)
+storage3==0.11.0       # Supabase storage client (required <0.12,>=0.10)
+supafunc==0.9.4        # Supabase functions client (required <0.10,>=0.9)
+gotrue==2.11.0         # Supabase auth client (required <3.0.0,>=2.11.0)
 
 # Data Validation
 pydantic==2.10.5       # Data validation (required by supabase)
@@ -73,7 +73,7 @@ python-dotenv==1.2.1   # Load environment variables from .env
 
 # Utilities
 python-dateutil==2.9.0.post0
-pytz==2026.1           # Timezone handling (pandas dependency)
+pytz==2025.2           # Timezone handling (pandas dependency)
 six==1.17.0            # Python 2/3 compatibility
 packaging==26.0        # Version parsing and comparison
 typing_extensions==4.15.0
