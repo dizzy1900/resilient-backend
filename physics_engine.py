@@ -1,7 +1,7 @@
 # =============================================================================
 # MULTI-CROP YIELD MODEL - Physics Engine
 # Process-based modeling of heat and drought stress
-# Supports: Maize, Cocoa
+# Supports: Maize, Cocoa, Rice, Soy, Wheat
 # =============================================================================
 
 # ============= MAIZE PARAMETERS =============
@@ -27,6 +27,41 @@ COCOA_OPTIMAL_RAIN_MM = 1750.0
 COCOA_MIN_RAIN_MM = 1200.0
 COCOA_OPTIMAL_TEMP_C = 25.0
 COCOA_HEAT_LIMIT_C = 33.0
+
+# ============= RICE PARAMETERS =============
+# Rice is water-tolerant (very high rainfall optimum) but suffers under drought.
+RICE_CRITICAL_TEMP_C = 32.0
+RICE_HEAT_LOSS_RATE_OPTIMAL = 2.0
+RICE_HEAT_LOSS_RATE_DROUGHT = 3.0
+RICE_MIN_RAINFALL_MM = 800.0
+RICE_OPTIMAL_RAINFALL_MIN_MM = 1200.0
+RICE_OPTIMAL_RAINFALL_MAX_MM = 2500.0
+RICE_RESILIENCE_DELTA_C = 2.0
+RICE_RESILIENCE_DROUGHT_FACTOR = 0.75
+RICE_WATERLOG_LOSS_PER_100MM = 1.0  # rice is relatively tolerant
+
+# ============= SOY PARAMETERS =============
+SOY_CRITICAL_TEMP_C = 30.0
+SOY_HEAT_LOSS_RATE_OPTIMAL = 2.5
+SOY_HEAT_LOSS_RATE_DROUGHT = 3.5
+SOY_MIN_RAINFALL_MM = 400.0
+SOY_OPTIMAL_RAINFALL_MIN_MM = 600.0
+SOY_OPTIMAL_RAINFALL_MAX_MM = 1600.0
+SOY_RESILIENCE_DELTA_C = 2.0
+SOY_RESILIENCE_DROUGHT_FACTOR = 0.75
+SOY_WATERLOG_LOSS_PER_100MM = 4.0
+
+# ============= WHEAT PARAMETERS =============
+# Wheat tends to be cooler-season; more sensitive to heat.
+WHEAT_CRITICAL_TEMP_C = 26.0
+WHEAT_HEAT_LOSS_RATE_OPTIMAL = 3.0
+WHEAT_HEAT_LOSS_RATE_DROUGHT = 4.5
+WHEAT_MIN_RAINFALL_MM = 250.0
+WHEAT_OPTIMAL_RAINFALL_MIN_MM = 450.0
+WHEAT_OPTIMAL_RAINFALL_MAX_MM = 1100.0
+WHEAT_RESILIENCE_DELTA_C = 1.5
+WHEAT_RESILIENCE_DROUGHT_FACTOR = 0.8
+WHEAT_WATERLOG_LOSS_PER_100MM = 5.0
 
 # Cocoa loss rates
 COCOA_RAIN_PENALTY_PER_100MM = 10.0  # Steep penalty: 10% per 100mm below minimum
@@ -98,104 +133,185 @@ def calculate_cocoa_yield(temp: float, rain: float, seed_type: int, temp_delta: 
     return max(0.0, min(100.0, yield_pct))
 
 
-def calculate_maize_yield(temp: float, rain: float, seed_type: int, temp_delta: float = 0.0, rain_pct_change: float = 0.0) -> float:
-    """
-    Calculate maize yield based on temperature, rainfall, and seed type.
-    
-    Args:
-        temp: Temperature in °C
-        rain: Rainfall in mm
-        seed_type: 0 = Standard, 1 = Resilient (climate-smart)
-        temp_delta: Temperature increase for climate scenario (°C), default 0.0
-        rain_pct_change: Percentage change in rainfall (e.g., 8 for +8%, -10 for -10%), default 0.0
-    
-    Returns:
-        Yield as percentage (0-100) of maximum potential yield
-    """
-    # Start with 100% potential yield
+def _calculate_staple_crop_yield(
+    *,
+    temp: float,
+    rain: float,
+    seed_type: int,
+    temp_delta: float,
+    rain_pct_change: float,
+    critical_temp_c: float,
+    heat_loss_rate_optimal: float,
+    heat_loss_rate_drought: float,
+    min_rainfall_mm: float,
+    optimal_rainfall_min_mm: float,
+    optimal_rainfall_max_mm: float,
+    resilience_delta_c: float,
+    resilience_drought_factor: float,
+    waterlog_loss_per_100mm: float,
+    waterlog_resilience_multiplier: float = 0.6,
+) -> float:
+    """Generic yield model used for maize-like staple crops."""
     yield_pct = 100.0
-    
-    # Apply climate perturbation using Delta Method
+
     simulated_temp = temp + temp_delta
     simulated_rain = max(0.0, rain * (1 + (rain_pct_change / 100)))
-    
-    # Adjust critical temperature for resilient varieties
-    effective_critical_temp = MAIZE_CRITICAL_TEMP_C
+
+    effective_critical_temp = critical_temp_c
     if seed_type == 1:
-        effective_critical_temp += MAIZE_RESILIENCE_DELTA_C
-    
-    # Determine if drought conditions exist
-    is_drought = simulated_rain < MAIZE_OPTIMAL_RAINFALL_MIN_MM
-    
-    # Apply heat stress loss if temperature exceeds threshold
+        effective_critical_temp += resilience_delta_c
+
+    is_drought = simulated_rain < optimal_rainfall_min_mm
+
     if simulated_temp > effective_critical_temp:
         excess_temp = simulated_temp - effective_critical_temp
-        loss_rate = MAIZE_HEAT_LOSS_RATE_DROUGHT if is_drought else MAIZE_HEAT_LOSS_RATE_OPTIMAL
-        heat_loss = excess_temp * loss_rate
-        yield_pct -= heat_loss
-    
-    # Apply rainfall-based yield adjustment
-    if simulated_rain < MAIZE_MIN_RAINFALL_MM:
-        # Below minimum: severe yield reduction
-        rain_factor = simulated_rain / MAIZE_MIN_RAINFALL_MM
-        base_yield = rain_factor * 0.5  # Max 50% yield at minimum threshold
-        
-        # Resilient seeds perform better under severe drought
+        loss_rate = heat_loss_rate_drought if is_drought else heat_loss_rate_optimal
+        yield_pct -= excess_temp * loss_rate
+
+    # Rainfall-based yield adjustments (piecewise)
+    if simulated_rain < min_rainfall_mm:
+        rain_factor = simulated_rain / min_rainfall_mm if min_rainfall_mm > 0 else 0.0
+        base_yield = rain_factor * 0.5
+
         if seed_type == 1:
-            base_yield = min(base_yield * 1.3, 0.7)  # 30% better, capped at 70%
-        
+            base_yield = min(base_yield * 1.3, 0.7)
+
         yield_pct *= base_yield
-    elif simulated_rain < MAIZE_OPTIMAL_RAINFALL_MIN_MM:
-        # Sub-optimal: linear reduction
-        rain_factor = 0.5 + 0.5 * (simulated_rain - MAIZE_MIN_RAINFALL_MM) / (MAIZE_OPTIMAL_RAINFALL_MIN_MM - MAIZE_MIN_RAINFALL_MM)
-        
-        # Resilient seeds handle drought stress better
+
+    elif simulated_rain < optimal_rainfall_min_mm:
+        denom = (optimal_rainfall_min_mm - min_rainfall_mm)
+        rain_factor = 0.5 + 0.5 * (simulated_rain - min_rainfall_mm) / denom if denom != 0 else 0.5
+
         if seed_type == 1:
             drought_penalty = 1.0 - rain_factor
-            rain_factor = 1.0 - (drought_penalty * MAIZE_RESILIENCE_DROUGHT_FACTOR)
-        
+            rain_factor = 1.0 - (drought_penalty * resilience_drought_factor)
+
         yield_pct *= rain_factor
-    elif simulated_rain > MAIZE_OPTIMAL_RAINFALL_MAX_MM:
-        # Excess rainfall: waterlogging reduces yield
-        # Gentler penalty: 5% loss per 100mm excess
-        excess_rain = simulated_rain - MAIZE_OPTIMAL_RAINFALL_MAX_MM
-        waterlog_loss = (excess_rain / 100.0) * 5.0  # 5% per 100mm
-        
-        # Resilient seeds tolerate waterlogging better
+
+    elif simulated_rain > optimal_rainfall_max_mm:
+        excess_rain = simulated_rain - optimal_rainfall_max_mm
+        waterlog_loss = (excess_rain / 100.0) * waterlog_loss_per_100mm
+
         if seed_type == 1:
-            waterlog_loss *= 0.6  # 40% less waterlogging damage
-        
+            waterlog_loss *= waterlog_resilience_multiplier
+
         yield_pct -= waterlog_loss
-    
-    # Clamp yield between 0 and 100
+
     return max(0.0, min(100.0, yield_pct))
 
 
+def calculate_maize_yield(temp: float, rain: float, seed_type: int, temp_delta: float = 0.0, rain_pct_change: float = 0.0) -> float:
+    """Calculate maize yield based on temperature, rainfall, and seed type."""
+    return _calculate_staple_crop_yield(
+        temp=temp,
+        rain=rain,
+        seed_type=seed_type,
+        temp_delta=temp_delta,
+        rain_pct_change=rain_pct_change,
+        critical_temp_c=MAIZE_CRITICAL_TEMP_C,
+        heat_loss_rate_optimal=MAIZE_HEAT_LOSS_RATE_OPTIMAL,
+        heat_loss_rate_drought=MAIZE_HEAT_LOSS_RATE_DROUGHT,
+        min_rainfall_mm=MAIZE_MIN_RAINFALL_MM,
+        optimal_rainfall_min_mm=MAIZE_OPTIMAL_RAINFALL_MIN_MM,
+        optimal_rainfall_max_mm=MAIZE_OPTIMAL_RAINFALL_MAX_MM,
+        resilience_delta_c=MAIZE_RESILIENCE_DELTA_C,
+        resilience_drought_factor=MAIZE_RESILIENCE_DROUGHT_FACTOR,
+        waterlog_loss_per_100mm=5.0,
+        waterlog_resilience_multiplier=0.6,
+    )
+
+
+def calculate_rice_yield(temp: float, rain: float, seed_type: int, temp_delta: float = 0.0, rain_pct_change: float = 0.0) -> float:
+    """Calculate rice yield (simplified water-tolerant crop model)."""
+    return _calculate_staple_crop_yield(
+        temp=temp,
+        rain=rain,
+        seed_type=seed_type,
+        temp_delta=temp_delta,
+        rain_pct_change=rain_pct_change,
+        critical_temp_c=RICE_CRITICAL_TEMP_C,
+        heat_loss_rate_optimal=RICE_HEAT_LOSS_RATE_OPTIMAL,
+        heat_loss_rate_drought=RICE_HEAT_LOSS_RATE_DROUGHT,
+        min_rainfall_mm=RICE_MIN_RAINFALL_MM,
+        optimal_rainfall_min_mm=RICE_OPTIMAL_RAINFALL_MIN_MM,
+        optimal_rainfall_max_mm=RICE_OPTIMAL_RAINFALL_MAX_MM,
+        resilience_delta_c=RICE_RESILIENCE_DELTA_C,
+        resilience_drought_factor=RICE_RESILIENCE_DROUGHT_FACTOR,
+        waterlog_loss_per_100mm=RICE_WATERLOG_LOSS_PER_100MM,
+        waterlog_resilience_multiplier=0.8,
+    )
+
+
+def calculate_soy_yield(temp: float, rain: float, seed_type: int, temp_delta: float = 0.0, rain_pct_change: float = 0.0) -> float:
+    """Calculate soy yield (simplified staple crop model)."""
+    return _calculate_staple_crop_yield(
+        temp=temp,
+        rain=rain,
+        seed_type=seed_type,
+        temp_delta=temp_delta,
+        rain_pct_change=rain_pct_change,
+        critical_temp_c=SOY_CRITICAL_TEMP_C,
+        heat_loss_rate_optimal=SOY_HEAT_LOSS_RATE_OPTIMAL,
+        heat_loss_rate_drought=SOY_HEAT_LOSS_RATE_DROUGHT,
+        min_rainfall_mm=SOY_MIN_RAINFALL_MM,
+        optimal_rainfall_min_mm=SOY_OPTIMAL_RAINFALL_MIN_MM,
+        optimal_rainfall_max_mm=SOY_OPTIMAL_RAINFALL_MAX_MM,
+        resilience_delta_c=SOY_RESILIENCE_DELTA_C,
+        resilience_drought_factor=SOY_RESILIENCE_DROUGHT_FACTOR,
+        waterlog_loss_per_100mm=SOY_WATERLOG_LOSS_PER_100MM,
+        waterlog_resilience_multiplier=0.6,
+    )
+
+
+def calculate_wheat_yield(temp: float, rain: float, seed_type: int, temp_delta: float = 0.0, rain_pct_change: float = 0.0) -> float:
+    """Calculate wheat yield (simplified cool-season staple crop model)."""
+    return _calculate_staple_crop_yield(
+        temp=temp,
+        rain=rain,
+        seed_type=seed_type,
+        temp_delta=temp_delta,
+        rain_pct_change=rain_pct_change,
+        critical_temp_c=WHEAT_CRITICAL_TEMP_C,
+        heat_loss_rate_optimal=WHEAT_HEAT_LOSS_RATE_OPTIMAL,
+        heat_loss_rate_drought=WHEAT_HEAT_LOSS_RATE_DROUGHT,
+        min_rainfall_mm=WHEAT_MIN_RAINFALL_MM,
+        optimal_rainfall_min_mm=WHEAT_OPTIMAL_RAINFALL_MIN_MM,
+        optimal_rainfall_max_mm=WHEAT_OPTIMAL_RAINFALL_MAX_MM,
+        resilience_delta_c=WHEAT_RESILIENCE_DELTA_C,
+        resilience_drought_factor=WHEAT_RESILIENCE_DROUGHT_FACTOR,
+        waterlog_loss_per_100mm=WHEAT_WATERLOG_LOSS_PER_100MM,
+        waterlog_resilience_multiplier=0.6,
+    )
+
+
 def calculate_yield(temp: float, rain: float, seed_type: int, crop_type: str = 'maize', temp_delta: float = 0.0, rain_pct_change: float = 0.0) -> float:
-    """
-    Calculate crop yield based on temperature, rainfall, seed type, and crop type.
-    
-    This is the main entry point for yield calculations. Routes to specific crop functions.
-    
-    Args:
-        temp: Temperature in °C
-        rain: Rainfall in mm
-        seed_type: 0 = Standard, 1 = Resilient (climate-smart)
-        crop_type: 'maize' or 'cocoa' (default: 'maize')
-        temp_delta: Temperature increase for climate scenario (°C), default 0.0
-        rain_pct_change: Percentage change in rainfall (e.g., 8 for +8%, -10 for -10%), default 0.0
-    
-    Returns:
-        Yield as percentage (0-100) of maximum potential yield
+    """Calculate crop yield based on temperature, rainfall, seed type, and crop type.
+
+    This is the main entry point for yield calculations.
+
+    Supported crop types:
+    - maize
+    - cocoa
+    - rice
+    - soy
+    - wheat
     """
     crop_type_lower = crop_type.lower()
-    
+
     if crop_type_lower == 'maize':
         return calculate_maize_yield(temp, rain, seed_type, temp_delta, rain_pct_change)
-    elif crop_type_lower == 'cocoa':
+    if crop_type_lower == 'cocoa':
         return calculate_cocoa_yield(temp, rain, seed_type, temp_delta, rain_pct_change)
-    else:
-        raise ValueError(f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa'")
+    if crop_type_lower == 'rice':
+        return calculate_rice_yield(temp, rain, seed_type, temp_delta, rain_pct_change)
+    if crop_type_lower == 'soy':
+        return calculate_soy_yield(temp, rain, seed_type, temp_delta, rain_pct_change)
+    if crop_type_lower == 'wheat':
+        return calculate_wheat_yield(temp, rain, seed_type, temp_delta, rain_pct_change)
+
+    raise ValueError(
+        f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa', 'rice', 'soy', 'wheat'"
+    )
 
 
 # Legacy function for backwards compatibility

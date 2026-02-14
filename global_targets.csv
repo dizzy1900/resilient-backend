@@ -1,0 +1,21 @@
+name,lat,lon,project_type,crop_type
+Shanghai Port,31.2304,121.4737,coastal,
+Rotterdam Port,51.9244,4.4777,coastal,
+Lagos Port,6.4550,3.3841,coastal,
+New York Harbor,40.7128,-74.0060,coastal,
+Singapore Port,1.3521,103.8198,coastal,
+Iowa Ag Hub (Maize),42.0000,-93.0000,agriculture,maize
+Ghana Ag Hub (Cocoa),6.6666,-1.6163,agriculture,cocoa
+Vietnam Ag Hub (Rice),10.0333,105.7833,agriculture,rice
+Brazil Ag Hub (Soy),-12.5000,-55.7000,agriculture,soy
+Ukraine Ag Hub (Wheat),49.0000,31.0000,agriculture,wheat
+London,51.5074,-0.1278,flood,
+Mumbai,19.0760,72.8777,flood,
+Jakarta,-6.2088,106.8456,flood,
+Miami,25.7617,-80.1918,coastal,
+Sydney,-33.8688,151.2093,coastal,
+Tokyo,35.6762,139.6503,flood,
+Manila,14.5995,120.9842,flood,
+Dhaka,23.8103,90.4125,flood,
+Nairobi,-1.2921,36.8219,health,
+Cairo,30.0444,31.2357,health,
