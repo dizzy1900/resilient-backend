@@ -1,0 +1,1334 @@
+[
+  {
+    "project_type": "agriculture",
+    "location": {
+      "lat": -12.5,
+      "lon": -55.7
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 29.0,
+      "rainfall_mm": 2201.4,
+      "temp_delta": 0.0,
+      "rain_pct_change": 0.0,
+      "data_source": "mock_data"
+    },
+    "crop_analysis": {
+      "crop_type": "soy",
+      "standard_yield_pct": 75.94,
+      "resilient_yield_pct": 85.57,
+      "avoided_loss_pct": 9.62,
+      "percentage_improvement": 12.67,
+      "recommendation": "resilient"
+    },
+    "financial_analysis": {
+      "npv_usd": 1079668.7,
+      "payback_years": 0.01,
+      "incremental_cash_flows": [
+        -2000.0,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6,
+        176036.6
+      ],
+      "assumptions": {
+        "capex": 2000.0,
+        "opex": 425.0,
+        "yield_benefit_pct": 30.0,
+        "price_per_ton": 5000.0,
+        "discount_rate_pct": 10.0,
+        "analysis_years": 10
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.211820",
+    "success": true,
+    "target": {
+      "name": "Brazil Ag Hub (Soy)",
+      "lat": -12.5,
+      "lon": -55.7,
+      "project_type": "agriculture",
+      "crop_type": "soy"
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "-12.5",
+        "--lon",
+        "-55.7",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "agriculture",
+        "--crop_type",
+        "soy",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "agriculture",
+    "location": {
+      "lat": 6.6666,
+      "lon": -1.6163
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 29.7,
+      "rainfall_mm": 2422.3,
+      "temp_delta": 0.0,
+      "rain_pct_change": 0.0,
+      "data_source": "mock_data"
+    },
+    "crop_analysis": {
+      "crop_type": "cocoa",
+      "standard_yield_pct": 100.0,
+      "resilient_yield_pct": 100.0,
+      "avoided_loss_pct": 0.0,
+      "percentage_improvement": 0.0,
+      "recommendation": "standard"
+    },
+    "financial_analysis": {
+      "npv_usd": 456231.09,
+      "payback_years": 0.03,
+      "incremental_cash_flows": [
+        -2000.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0,
+        74575.0
+      ],
+      "assumptions": {
+        "capex": 2000.0,
+        "opex": 425.0,
+        "yield_benefit_pct": 30.0,
+        "price_per_ton": 2500.0,
+        "discount_rate_pct": 10.0,
+        "analysis_years": 10
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.181304",
+    "success": true,
+    "target": {
+      "name": "Ghana Ag Hub (Cocoa)",
+      "lat": 6.6666,
+      "lon": -1.6163,
+      "project_type": "agriculture",
+      "crop_type": "cocoa"
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "6.6666",
+        "--lon",
+        "-1.6163",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "agriculture",
+        "--crop_type",
+        "cocoa",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "agriculture",
+    "location": {
+      "lat": 42.0,
+      "lon": -93.0
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 21.2,
+      "rainfall_mm": 904.1,
+      "temp_delta": 0.0,
+      "rain_pct_change": 0.0,
+      "data_source": "mock_data"
+    },
+    "crop_analysis": {
+      "crop_type": "maize",
+      "standard_yield_pct": 100.0,
+      "resilient_yield_pct": 100.0,
+      "avoided_loss_pct": 0.0,
+      "percentage_improvement": 0.0,
+      "recommendation": "standard"
+    },
+    "financial_analysis": {
+      "npv_usd": 880206.22,
+      "payback_years": 0.01,
+      "incremental_cash_flows": [
+        -2000.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0,
+        143575.0
+      ],
+      "assumptions": {
+        "capex": 2000.0,
+        "opex": 425.0,
+        "yield_benefit_pct": 30.0,
+        "price_per_ton": 4800.0,
+        "discount_rate_pct": 10.0,
+        "analysis_years": 10
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.178374",
+    "success": true,
+    "target": {
+      "name": "Iowa Ag Hub (Maize)",
+      "lat": 42.0,
+      "lon": -93.0,
+      "project_type": "agriculture",
+      "crop_type": "maize"
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "42.0",
+        "--lon",
+        "-93.0",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "agriculture",
+        "--crop_type",
+        "maize",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "agriculture",
+    "location": {
+      "lat": 49.0,
+      "lon": 31.0
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 12.7,
+      "rainfall_mm": 1219.7,
+      "temp_delta": 0.0,
+      "rain_pct_change": 0.0,
+      "data_source": "mock_data"
+    },
+    "crop_analysis": {
+      "crop_type": "wheat",
+      "standard_yield_pct": 94.02,
+      "resilient_yield_pct": 96.41,
+      "avoided_loss_pct": 2.39,
+      "percentage_improvement": 2.55,
+      "recommendation": "resilient"
+    },
+    "financial_analysis": {
+      "npv_usd": 668885.04,
+      "payback_years": 0.02,
+      "incremental_cash_flows": [
+        -2000.0,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45,
+        109183.45
+      ],
+      "assumptions": {
+        "capex": 2000.0,
+        "opex": 425.0,
+        "yield_benefit_pct": 30.0,
+        "price_per_ton": 3500.0,
+        "discount_rate_pct": 10.0,
+        "analysis_years": 10
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.217630",
+    "success": true,
+    "target": {
+      "name": "Ukraine Ag Hub (Wheat)",
+      "lat": 49.0,
+      "lon": 31.0,
+      "project_type": "agriculture",
+      "crop_type": "wheat"
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "49.0",
+        "--lon",
+        "31.0",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "agriculture",
+        "--crop_type",
+        "wheat",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "agriculture",
+    "location": {
+      "lat": 10.0333,
+      "lon": 105.7833
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 30.8,
+      "rainfall_mm": 2749.9,
+      "temp_delta": 0.0,
+      "rain_pct_change": 0.0,
+      "data_source": "mock_data"
+    },
+    "crop_analysis": {
+      "crop_type": "rice",
+      "standard_yield_pct": 97.5,
+      "resilient_yield_pct": 98.0,
+      "avoided_loss_pct": 0.5,
+      "percentage_improvement": 0.51,
+      "recommendation": "resilient"
+    },
+    "financial_analysis": {
+      "npv_usd": 730279.77,
+      "payback_years": 0.02,
+      "incremental_cash_flows": [
+        -2000.0,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16,
+        119175.16
+      ],
+      "assumptions": {
+        "capex": 2000.0,
+        "opex": 425.0,
+        "yield_benefit_pct": 30.0,
+        "price_per_ton": 4000.0,
+        "discount_rate_pct": 10.0,
+        "analysis_years": 10
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.194773",
+    "success": true,
+    "target": {
+      "name": "Vietnam Ag Hub (Rice)",
+      "lat": 10.0333,
+      "lon": 105.7833,
+      "project_type": "agriculture",
+      "crop_type": "rice"
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "10.0333",
+        "--lon",
+        "105.7833",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "agriculture",
+        "--crop_type",
+        "rice",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": 6.455,
+      "lon": 3.3841
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 6,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.039049",
+    "success": true,
+    "target": {
+      "name": "Lagos Port",
+      "lat": 6.455,
+      "lon": 3.3841,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "6.455",
+        "--lon",
+        "3.3841",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": 25.7617,
+      "lon": -80.1918
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 37,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:26.162160",
+    "success": true,
+    "target": {
+      "name": "Miami",
+      "lat": 25.7617,
+      "lon": -80.1918,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "25.7617",
+        "--lon",
+        "-80.1918",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": 40.7128,
+      "lon": -74.006
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 23,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:23.931449",
+    "success": true,
+    "target": {
+      "name": "New York Harbor",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "40.7128",
+        "--lon",
+        "-74.006",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": 51.9244,
+      "lon": 4.4777
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 10,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.085619",
+    "success": true,
+    "target": {
+      "name": "Rotterdam Port",
+      "lat": 51.9244,
+      "lon": 4.4777,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "51.9244",
+        "--lon",
+        "4.4777",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": 31.2304,
+      "lon": 121.4737
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 9,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:24.069327",
+    "success": true,
+    "target": {
+      "name": "Shanghai Port",
+      "lat": 31.2304,
+      "lon": 121.4737,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "31.2304",
+        "--lon",
+        "121.4737",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": 1.3521,
+      "lon": 103.8198
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 57,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:25.006061",
+    "success": true,
+    "target": {
+      "name": "Singapore Port",
+      "lat": 1.3521,
+      "lon": 103.8198,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "1.3521",
+        "--lon",
+        "103.8198",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "coastal",
+    "location": {
+      "lat": -33.8688,
+      "lon": 151.2093
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "slr_projection_m": 1.0,
+      "include_surge": true,
+      "surge_m": 2.5,
+      "total_water_level_m": 3.5,
+      "mangrove_width_m": 0.0
+    },
+    "flood_risk": {
+      "elevation_m": 66,
+      "is_underwater": false,
+      "flood_depth_m": 0.0,
+      "risk_category": "Low",
+      "data_source": "google_earth_engine"
+    },
+    "execution_timestamp": "2026-02-14T00:45:26.433469",
+    "success": true,
+    "target": {
+      "name": "Sydney",
+      "lat": -33.8688,
+      "lon": 151.2093,
+      "project_type": "coastal",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "-33.8688",
+        "--lon",
+        "151.2093",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "coastal",
+        "--slr_projection",
+        "1.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "flood",
+    "location": {
+      "lat": 23.8103,
+      "lon": 90.4125
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "rain_intensity_increase_pct": 25.0
+    },
+    "flash_flood_analysis": {
+      "baseline_flood_area_km2": 0.0,
+      "future_flood_area_km2": 0.0,
+      "risk_increase_pct": 0.0,
+      "data_source": "google_earth_engine"
+    },
+    "rainfall_frequency": {
+      "rain_chart_data": [
+        {
+          "period": "1yr",
+          "baseline_mm": 70.0,
+          "future_mm": 87.5
+        },
+        {
+          "period": "10yr",
+          "baseline_mm": 121.5,
+          "future_mm": 151.88
+        },
+        {
+          "period": "50yr",
+          "baseline_mm": 159.7,
+          "future_mm": 199.62
+        },
+        {
+          "period": "100yr",
+          "baseline_mm": 179.4,
+          "future_mm": 224.25
+        }
+      ]
+    },
+    "execution_timestamp": "2026-02-14T00:45:27.326792",
+    "success": true,
+    "target": {
+      "name": "Dhaka",
+      "lat": 23.8103,
+      "lon": 90.4125,
+      "project_type": "flood",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "23.8103",
+        "--lon",
+        "90.4125",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "flood",
+        "--rain_intensity",
+        "25.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "flood",
+    "location": {
+      "lat": -6.2088,
+      "lon": 106.8456
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "rain_intensity_increase_pct": 25.0
+    },
+    "flash_flood_analysis": {
+      "baseline_flood_area_km2": 0.0,
+      "future_flood_area_km2": 0.0,
+      "risk_increase_pct": 0.0,
+      "data_source": "google_earth_engine"
+    },
+    "rainfall_frequency": {
+      "rain_chart_data": [
+        {
+          "period": "1yr",
+          "baseline_mm": 70.0,
+          "future_mm": 87.5
+        },
+        {
+          "period": "10yr",
+          "baseline_mm": 121.5,
+          "future_mm": 151.88
+        },
+        {
+          "period": "50yr",
+          "baseline_mm": 159.7,
+          "future_mm": 199.62
+        },
+        {
+          "period": "100yr",
+          "baseline_mm": 179.4,
+          "future_mm": 224.25
+        }
+      ]
+    },
+    "execution_timestamp": "2026-02-14T00:45:25.496107",
+    "success": true,
+    "target": {
+      "name": "Jakarta",
+      "lat": -6.2088,
+      "lon": 106.8456,
+      "project_type": "flood",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "-6.2088",
+        "--lon",
+        "106.8456",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "flood",
+        "--rain_intensity",
+        "25.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "flood",
+    "location": {
+      "lat": 51.5074,
+      "lon": -0.1278
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "rain_intensity_increase_pct": 25.0
+    },
+    "flash_flood_analysis": {
+      "baseline_flood_area_km2": 0.0,
+      "future_flood_area_km2": 0.0,
+      "risk_increase_pct": 0.0,
+      "data_source": "google_earth_engine"
+    },
+    "rainfall_frequency": {
+      "rain_chart_data": [
+        {
+          "period": "1yr",
+          "baseline_mm": 70.0,
+          "future_mm": 87.5
+        },
+        {
+          "period": "10yr",
+          "baseline_mm": 121.5,
+          "future_mm": 151.88
+        },
+        {
+          "period": "50yr",
+          "baseline_mm": 159.7,
+          "future_mm": 199.62
+        },
+        {
+          "period": "100yr",
+          "baseline_mm": 179.4,
+          "future_mm": 224.25
+        }
+      ]
+    },
+    "execution_timestamp": "2026-02-14T00:45:25.584533",
+    "success": true,
+    "target": {
+      "name": "London",
+      "lat": 51.5074,
+      "lon": -0.1278,
+      "project_type": "flood",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "51.5074",
+        "--lon",
+        "-0.1278",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "flood",
+        "--rain_intensity",
+        "25.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "flood",
+    "location": {
+      "lat": 14.5995,
+      "lon": 120.9842
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "rain_intensity_increase_pct": 25.0
+    },
+    "flash_flood_analysis": {
+      "baseline_flood_area_km2": 0.0,
+      "future_flood_area_km2": 0.0,
+      "risk_increase_pct": 0.0,
+      "data_source": "google_earth_engine"
+    },
+    "rainfall_frequency": {
+      "rain_chart_data": [
+        {
+          "period": "1yr",
+          "baseline_mm": 70.0,
+          "future_mm": 87.5
+        },
+        {
+          "period": "10yr",
+          "baseline_mm": 121.5,
+          "future_mm": 151.88
+        },
+        {
+          "period": "50yr",
+          "baseline_mm": 159.7,
+          "future_mm": 199.62
+        },
+        {
+          "period": "100yr",
+          "baseline_mm": 179.4,
+          "future_mm": 224.25
+        }
+      ]
+    },
+    "execution_timestamp": "2026-02-14T00:45:26.891048",
+    "success": true,
+    "target": {
+      "name": "Manila",
+      "lat": 14.5995,
+      "lon": 120.9842,
+      "project_type": "flood",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "14.5995",
+        "--lon",
+        "120.9842",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "flood",
+        "--rain_intensity",
+        "25.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "flood",
+    "location": {
+      "lat": 19.076,
+      "lon": 72.8777
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "rain_intensity_increase_pct": 25.0
+    },
+    "flash_flood_analysis": {
+      "baseline_flood_area_km2": 0.0,
+      "future_flood_area_km2": 0.0,
+      "risk_increase_pct": 0.0,
+      "data_source": "google_earth_engine"
+    },
+    "rainfall_frequency": {
+      "rain_chart_data": [
+        {
+          "period": "1yr",
+          "baseline_mm": 70.0,
+          "future_mm": 87.5
+        },
+        {
+          "period": "10yr",
+          "baseline_mm": 121.5,
+          "future_mm": 151.88
+        },
+        {
+          "period": "50yr",
+          "baseline_mm": 159.7,
+          "future_mm": 199.62
+        },
+        {
+          "period": "100yr",
+          "baseline_mm": 179.4,
+          "future_mm": 224.25
+        }
+      ]
+    },
+    "execution_timestamp": "2026-02-14T00:45:25.210271",
+    "success": true,
+    "target": {
+      "name": "Mumbai",
+      "lat": 19.076,
+      "lon": 72.8777,
+      "project_type": "flood",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "19.076",
+        "--lon",
+        "72.8777",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "flood",
+        "--rain_intensity",
+        "25.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "flood",
+    "location": {
+      "lat": 35.6762,
+      "lon": 139.6503
+    },
+    "scenario_year": 2050,
+    "input_conditions": {
+      "rain_intensity_increase_pct": 25.0
+    },
+    "flash_flood_analysis": {
+      "baseline_flood_area_km2": 0.0,
+      "future_flood_area_km2": 0.0,
+      "risk_increase_pct": 0.0,
+      "data_source": "google_earth_engine"
+    },
+    "rainfall_frequency": {
+      "rain_chart_data": [
+        {
+          "period": "1yr",
+          "baseline_mm": 70.0,
+          "future_mm": 87.5
+        },
+        {
+          "period": "10yr",
+          "baseline_mm": 121.5,
+          "future_mm": 151.88
+        },
+        {
+          "period": "50yr",
+          "baseline_mm": 159.7,
+          "future_mm": 199.62
+        },
+        {
+          "period": "100yr",
+          "baseline_mm": 179.4,
+          "future_mm": 224.25
+        }
+      ]
+    },
+    "execution_timestamp": "2026-02-14T00:45:26.532680",
+    "success": true,
+    "target": {
+      "name": "Tokyo",
+      "lat": 35.6762,
+      "lon": 139.6503,
+      "project_type": "flood",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "35.6762",
+        "--lon",
+        "139.6503",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "flood",
+        "--rain_intensity",
+        "25.0",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "health",
+    "location": {
+      "lat": 30.0444,
+      "lon": 31.2357
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 23.9,
+      "precipitation_mm": 890.8,
+      "estimated_humidity_pct": 65.0,
+      "data_source": "mock_data"
+    },
+    "workforce_parameters": {
+      "workforce_size": 100,
+      "daily_wage_usd": 15.0
+    },
+    "productivity_analysis": {
+      "wbgt_estimate": 23.2,
+      "productivity_loss_pct": 0.0,
+      "heat_stress_category": "Low",
+      "recommendation": "Normal work possible",
+      "inputs": {
+        "temperature_c": 23.9,
+        "humidity_pct": 65.0
+      }
+    },
+    "malaria_risk": {
+      "risk_score": 100,
+      "risk_category": "High",
+      "description": "Climate conditions highly suitable for malaria transmission",
+      "climate_suitability": {
+        "temperature_suitable": true,
+        "precipitation_suitable": true,
+        "temperature_c": 23.9,
+        "precipitation_mm": 890.8
+      },
+      "risk_factors": [
+        "Temperature in optimal range (16-34\u00b0C)",
+        "Precipitation sufficient (891mm > 80mm threshold)"
+      ],
+      "mitigation_measures": [
+        "Use insecticide-treated bed nets",
+        "Indoor residual spraying",
+        "Eliminate standing water",
+        "Prophylactic medication for high-risk areas",
+        "Early diagnosis and treatment"
+      ]
+    },
+    "economic_impact": {
+      "heat_stress_impact": {
+        "daily_productivity_loss": 0.0,
+        "annual_productivity_loss": 0.0,
+        "affected_workers": 100,
+        "loss_per_worker_daily": 0.0
+      },
+      "malaria_impact": {
+        "estimated_days_lost_per_worker": 10,
+        "annual_absenteeism_cost": 15000.0,
+        "annual_healthcare_costs": 1000.0
+      },
+      "total_economic_impact": {
+        "annual_loss": 16000.0,
+        "daily_loss_average": 64.0,
+        "per_worker_annual_loss": 160.0
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:26.546001",
+    "success": true,
+    "target": {
+      "name": "Cairo",
+      "lat": 30.0444,
+      "lon": 31.2357,
+      "project_type": "health",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "30.0444",
+        "--lon",
+        "31.2357",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "health",
+        "--use-mock-data"
+      ]
+    }
+  },
+  {
+    "project_type": "health",
+    "location": {
+      "lat": -1.2921,
+      "lon": 36.8219
+    },
+    "scenario_year": 2050,
+    "climate_conditions": {
+      "temperature_c": 26.8,
+      "precipitation_mm": 1326.7,
+      "estimated_humidity_pct": 80.0,
+      "data_source": "mock_data"
+    },
+    "workforce_parameters": {
+      "workforce_size": 100,
+      "daily_wage_usd": 15.0
+    },
+    "productivity_analysis": {
+      "wbgt_estimate": 26.8,
+      "productivity_loss_pct": 6.3,
+      "heat_stress_category": "Moderate",
+      "recommendation": "Light work affected, breaks recommended",
+      "inputs": {
+        "temperature_c": 26.8,
+        "humidity_pct": 80.0
+      }
+    },
+    "malaria_risk": {
+      "risk_score": 100,
+      "risk_category": "High",
+      "description": "Climate conditions highly suitable for malaria transmission",
+      "climate_suitability": {
+        "temperature_suitable": true,
+        "precipitation_suitable": true,
+        "temperature_c": 26.8,
+        "precipitation_mm": 1326.7
+      },
+      "risk_factors": [
+        "Temperature in optimal range (16-34\u00b0C)",
+        "Precipitation sufficient (1327mm > 80mm threshold)"
+      ],
+      "mitigation_measures": [
+        "Use insecticide-treated bed nets",
+        "Indoor residual spraying",
+        "Eliminate standing water",
+        "Prophylactic medication for high-risk areas",
+        "Early diagnosis and treatment"
+      ]
+    },
+    "economic_impact": {
+      "heat_stress_impact": {
+        "daily_productivity_loss": 94.5,
+        "annual_productivity_loss": 23625.0,
+        "affected_workers": 100,
+        "loss_per_worker_daily": 0.95
+      },
+      "malaria_impact": {
+        "estimated_days_lost_per_worker": 10,
+        "annual_absenteeism_cost": 15000.0,
+        "annual_healthcare_costs": 1000.0
+      },
+      "total_economic_impact": {
+        "annual_loss": 39625.0,
+        "daily_loss_average": 158.5,
+        "per_worker_annual_loss": 396.25
+      }
+    },
+    "execution_timestamp": "2026-02-14T00:45:26.519091",
+    "success": true,
+    "target": {
+      "name": "Nairobi",
+      "lat": -1.2921,
+      "lon": 36.8219,
+      "project_type": "health",
+      "crop_type": null
+    },
+    "runner": {
+      "returncode": 0,
+      "stderr": "Info: Using mock data for testing",
+      "cmd": [
+        "/usr/local/bin/python",
+        "/workspace/adaptmetric-backend/headless_runner.py",
+        "--lat",
+        "-1.2921",
+        "--lon",
+        "36.8219",
+        "--scenario_year",
+        "2050",
+        "--project_type",
+        "health",
+        "--use-mock-data"
+      ]
+    }
+  }
+]
