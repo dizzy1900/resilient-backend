@@ -1,0 +1,9 @@
+scenario,wave_height,slope,mangrove_width_m,predicted_runup_m
+High Risk - No Protection,8.0,0.08,0.0,0.4182503280113427
+High Risk - Moderate Mangrove,8.0,0.08,100.0,0.24810671942489518
+High Risk - Dense Mangrove,8.0,0.08,300.0,0.07668052632137999
+Moderate Risk - No Protection,5.0,0.04,0.0,0.1291725295963816
+Moderate Risk - With Mangrove,5.0,0.04,150.0,0.05787779673178216
+Low Risk - No Protection,2.0,0.02,0.0,0.024944802368140517
+Extreme Event - Max Protection,10.0,0.1,500.0,0.03394639503979133
+Custom - Medium Conditions,6.5,0.055,200.0,0.08068442145390431
