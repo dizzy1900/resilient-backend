@@ -17,8 +17,8 @@ from typing import Dict, Any, List, Tuple
 from monte_carlo_engine import run_simulation
 
 
-INPUT_FILE = "final_global_atlas.json"
-OUTPUT_FILE = "global_atlas_risk_adjusted.json"
+INPUT_FILE = "global_atlas_v2.json"
+OUTPUT_FILE = "temp_risk_atlas.json"
 ITERATIONS = 50
 MAX_WORKERS = 8  # Parallel workers
 

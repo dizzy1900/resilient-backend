@@ -259,7 +259,13 @@ def process_atlas(input_path: str, output_path: str) -> dict:
     print(f"Loading risk atlas from: {input_path}")
     
     with open(input_path, 'r') as f:
-        atlas = json.load(f)
+        data = json.load(f)
+    
+    # Handle nested structure from stress_test_orchestrator (has 'locations' key)
+    if isinstance(data, dict) and 'locations' in data:
+        atlas = data['locations']
+    else:
+        atlas = data
     
     print(f"Processing {len(atlas)} locations...")
     
@@ -305,8 +311,8 @@ def process_atlas(input_path: str, output_path: str) -> dict:
 
 def main():
     """Main entry point."""
-    input_path = "/workspace/adaptmetric-backend/final_global_atlas.json"
-    output_path = "/workspace/adaptmetric-backend/global_atlas_with_insights.json"
+    input_path = "/workspace/adaptmetric-backend/temp_risk_atlas.json"
+    output_path = "/workspace/adaptmetric-backend/final_100_risk_narrative_atlas.json"
     
     print("=" * 60)
     print("NARRATIVE ENGINE: Chief Risk Officer Layer")
