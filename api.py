@@ -16,13 +16,14 @@ from __future__ import annotations
 import os
 import subprocess
 import json
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from physics_engine import calculate_yield
+from spatial_engine import process_polygon_request
 
 
 CropType = Literal["maize", "cocoa"]
@@ -77,6 +78,24 @@ class FloodRequest(BaseModel):
     lon: float = Field(..., ge=-180, le=180)
     scenario_year: int = Field(2050, ge=2024, le=2100)
     rain_intensity: float = Field(0.0, description="Rainfall intensity increase percentage")
+
+
+class PolygonRequest(BaseModel):
+    """Request for polygon-based Digital Twin risk analysis.
+    
+    Accepts a GeoJSON Feature or Geometry object representing the area of interest.
+    Calculates fractional exposure and scales financial risk accordingly.
+    """
+    geojson: Dict[str, Any] = Field(..., description="GeoJSON Feature or Geometry object")
+    risk_type: str = Field(..., description="Type of risk: flood, coastal, heat, drought, agriculture")
+    scenario_year: int = Field(2050, ge=2024, le=2100, description="Future year for projections")
+    asset_value_usd: float = Field(5_000_000.0, description="Total asset value in USD")
+    
+    # Scenario parameters
+    flood_depth_m: Optional[float] = Field(None, description="Flood depth in meters")
+    slr_m: Optional[float] = Field(None, description="Sea level rise in meters")
+    temp_delta: Optional[float] = Field(None, description="Temperature increase in °C")
+    damage_factor: float = Field(1.0, ge=0.0, le=1.0, description="Expected damage ratio (0-1)")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -261,6 +280,56 @@ def run_flood_simulation(req: FloodRequest) -> dict:
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/simulate/polygon")
+def run_polygon_simulation(req: PolygonRequest) -> dict:
+    """Run polygon-based Digital Twin risk analysis.
+    
+    This endpoint processes GeoJSON polygons to calculate:
+    - Polygon area in square kilometers
+    - Fractional exposure to climate risks
+    - Scaled financial risk based on exposure
+    
+    Returns spatial analysis with total_area_sqkm and fractional_exposure_pct.
+    """
+    try:
+        # Build scenario parameters dictionary
+        scenario_params = {
+            'damage_factor': req.damage_factor
+        }
+        
+        if req.flood_depth_m is not None:
+            scenario_params['flood_depth_m'] = req.flood_depth_m
+        if req.slr_m is not None:
+            scenario_params['slr_m'] = req.slr_m
+        if req.temp_delta is not None:
+            scenario_params['temp_delta'] = req.temp_delta
+        
+        # Process the polygon request using spatial_engine
+        result = process_polygon_request(
+            geojson=req.geojson,
+            risk_type=req.risk_type,
+            asset_value_usd=req.asset_value_usd,
+            scenario_params=scenario_params
+        )
+        
+        # Add metadata
+        result['scenario_year'] = req.scenario_year
+        result['status'] = 'success'
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid GeoJSON or parameters: {str(e)}"
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Polygon simulation failed: {str(e)}"
+        ) from e
 
 
 def main() -> None:
