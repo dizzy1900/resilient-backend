@@ -13,7 +13,7 @@ import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from gee_connector import get_weather_data, get_coastal_params, get_monthly_data, analyze_spatial_viability
+from gee_connector import get_weather_data, get_coastal_params, get_monthly_data, analyze_spatial_viability, get_terrain_data
 from batch_processor import run_batch_job
 from physics_engine import simulate_maize_yield, calculate_yield
 from coastal_engine import analyze_flood_risk, analyze_urban_impact
@@ -77,6 +77,11 @@ FALLBACK_WEATHER = {
     'max_temp_celsius': 28.5,
     'total_rain_mm': 520.0,
     'period': 'last_12_months'
+}
+
+FALLBACK_TERRAIN = {
+    'elevation_m': 500.0,
+    'soil_ph': 6.5
 }
 
 
@@ -156,6 +161,17 @@ def get_hazard():
             import sys
             print(f"GEE error, using fallback: {gee_error}", file=sys.stderr, flush=True)
             hazard_metrics = FALLBACK_WEATHER.copy()
+        
+        # Fetch terrain data (elevation and soil pH)
+        try:
+            terrain_data = get_terrain_data(lat=lat, lon=lon)
+            hazard_metrics['elevation_m'] = terrain_data['elevation_m']
+            hazard_metrics['soil_ph'] = terrain_data['soil_ph']
+        except Exception as terrain_error:
+            import sys
+            print(f"Terrain data error, using fallback: {terrain_error}", file=sys.stderr, flush=True)
+            hazard_metrics['elevation_m'] = FALLBACK_TERRAIN['elevation_m']
+            hazard_metrics['soil_ph'] = FALLBACK_TERRAIN['soil_ph']
         
         return jsonify({
             'status': 'success',
