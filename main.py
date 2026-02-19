@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 import ee
+import joblib
+import numpy as np
 import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -67,6 +69,17 @@ except FileNotFoundError:
     print(f"Warning: Flood model file '{FLOOD_MODEL_PATH}' not found.")
 except Exception as e:
     print(f"Warning: Failed to load flood model: {e}")
+
+# Load coffee yield model
+COFFEE_MODEL_PATH = 'coffee_model.pkl'
+coffee_model = None
+try:
+    coffee_model = joblib.load(COFFEE_MODEL_PATH)
+    print(f"Coffee model loaded successfully from {COFFEE_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Coffee model file '{COFFEE_MODEL_PATH}' not found.")
+except Exception as e:
+    print(f"Warning: Failed to load coffee model: {e}")
 
 SEED_TYPES = {
     'standard': 0,
@@ -214,12 +227,20 @@ def predict():
         crop_type = data.get('crop_type', 'maize').lower()
         
         # Validate crop type
-        if crop_type not in ['maize', 'cocoa']:
+        if crop_type not in ['maize', 'cocoa', 'coffee']:
             return jsonify({
                 'status': 'error',
-                'message': f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa'",
+                'message': f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa', 'coffee'",
                 'code': 'INVALID_CROP_TYPE'
             }), 400
+        
+        # Coffee model requires the dedicated ML model
+        if crop_type == 'coffee' and coffee_model is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Coffee model file not found. Ensure coffee_model.pkl exists.',
+                'code': 'MODEL_NOT_FOUND'
+            }), 500
         
         # Mode A: Auto-Lookup using lat/lon (Priority)
         if 'lat' in data and 'lon' in data:
@@ -307,6 +328,72 @@ def predict():
         rain_modifier = 1.0 + (rain_change / 100.0)
         final_simulated_rain = max(0.0, base_rain * rain_modifier)
         
+        # === COFFEE MODEL PREDICTION ===
+        # Uses dedicated Random Forest model trained on climate-yield relationships
+        if crop_type == 'coffee':
+            # Get elevation and soil_ph from request or fetch from GEE
+            elevation = float(data.get('elevation', data.get('elevation_m', 1200.0)))
+            soil_ph = float(data.get('soil_ph', 6.0))
+            
+            # If using lat/lon mode and terrain data not provided, fetch from GEE
+            if has_location and 'elevation' not in data and 'elevation_m' not in data:
+                try:
+                    terrain_data = get_terrain_data(lat=location_lat, lon=location_lon)
+                    elevation = terrain_data['elevation_m'] if terrain_data['elevation_m'] else 1200.0
+                    soil_ph = terrain_data['soil_ph'] if terrain_data['soil_ph'] else 6.0
+                except Exception as terrain_error:
+                    import sys
+                    print(f"Terrain fetch error for coffee prediction: {terrain_error}", file=sys.stderr, flush=True)
+            
+            # Calculate anomalies from optimal Arabica conditions
+            # Optimal baseline: 21°C temp, 1500mm rain
+            OPTIMAL_TEMP_C = 21.0
+            OPTIMAL_RAIN_MM = 1500.0
+            
+            baseline_temp_c = base_temp
+            temp_anomaly_c = temp_increase  # Use climate perturbation as anomaly
+            rainfall_mm = base_rain
+            rain_anomaly_mm = (rain_change / 100.0) * base_rain  # Convert % change to mm
+            
+            # Construct feature array in exact order expected by model:
+            # [baseline_temp_c, temp_anomaly_c, rainfall_mm, rain_anomaly_mm, elevation_m, soil_ph]
+            features = np.array([[baseline_temp_c, temp_anomaly_c, rainfall_mm, rain_anomaly_mm, elevation, soil_ph]])
+            
+            # Run prediction
+            yield_impact = float(coffee_model.predict(features)[0])
+            
+            # Return coffee-specific response
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'input_conditions': {
+                        'baseline_temp_c': round(baseline_temp_c, 2),
+                        'temp_anomaly_c': round(temp_anomaly_c, 2),
+                        'rainfall_mm': round(rainfall_mm, 2),
+                        'rain_anomaly_mm': round(rain_anomaly_mm, 2),
+                        'elevation_m': round(elevation, 2),
+                        'soil_ph': round(soil_ph, 2),
+                        'data_source': data_source,
+                        'crop_type': crop_type
+                    },
+                    'prediction': {
+                        'yield_impact_pct': round(yield_impact, 4),
+                        'yield_impact_category': (
+                            'optimal' if yield_impact >= 0.8 else
+                            'good' if yield_impact >= 0.6 else
+                            'moderate' if yield_impact >= 0.4 else
+                            'poor' if yield_impact >= 0.2 else
+                            'critical'
+                        )
+                    },
+                    'interpretation': {
+                        'description': f"Under current conditions, expected yield is {yield_impact*100:.1f}% of maximum potential.",
+                        'risk_factors': []
+                    }
+                }
+            }), 200
+        
+        # === MAIZE/COCOA PREDICTION ===
         # Run predictions using physics engine with climate perturbation
         standard_yield = calculate_yield(
             temp=base_temp,
