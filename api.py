@@ -14,6 +14,8 @@ Or:
 from __future__ import annotations
 
 import os
+import subprocess
+import json
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +26,14 @@ from physics_engine import calculate_yield
 
 
 CropType = Literal["maize", "cocoa"]
+
+
+class FinancialOverrides(BaseModel):
+    """Optional financial parameters for ROI calculations."""
+    capex_budget: float = Field(2000.0, description="Initial capital expenditure in USD")
+    opex_annual: float = Field(425.0, description="Annual operating expenses in USD")
+    discount_rate_pct: float = Field(10.0, description="Discount rate as percentage")
+    asset_lifespan_years: int = Field(10, ge=1, le=50, description="Asset lifespan in years")
 
 
 class SimulationRequest(BaseModel):
@@ -39,6 +49,34 @@ class SimulationRequest(BaseModel):
     seed_type: int = Field(0, ge=0, le=1, description="0=standard, 1=resilient")
     temp_delta: float = 0.0
     rain_pct_change: float = 0.0
+
+
+class AgricultureRequest(BaseModel):
+    """Request for agriculture simulation with financial overrides."""
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    scenario_year: int = Field(2050, ge=2024, le=2100, description="Future year for projections")
+    crop_type: str = Field("maize", description="Crop type: maize, cocoa, rice, soy, wheat")
+    temp_delta: float = Field(0.0, description="Temperature increase in °C")
+    rain_pct_change: float = Field(0.0, description="Rainfall change as percentage")
+    financial_overrides: Optional[FinancialOverrides] = Field(None, description="Custom financial parameters")
+
+
+class CoastalRequest(BaseModel):
+    """Request for coastal flood risk simulation."""
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    scenario_year: int = Field(2050, ge=2024, le=2100)
+    slr_projection: float = Field(0.0, description="Sea level rise in meters")
+    mangrove_width: float = Field(0.0, description="Mangrove buffer width in meters")
+
+
+class FloodRequest(BaseModel):
+    """Request for flash flood risk simulation."""
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    scenario_year: int = Field(2050, ge=2024, le=2100)
+    rain_intensity: float = Field(0.0, description="Rainfall intensity increase percentage")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -95,6 +133,132 @@ def run_simulation(req: SimulationRequest) -> dict:
     except ValueError as e:
         # e.g. unsupported crop_type (defensive)
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/simulate/agriculture")
+def run_agriculture_simulation(req: AgricultureRequest) -> dict:
+    """Run agriculture simulation with optional financial overrides.
+    
+    This endpoint calls the headless_runner with custom financial parameters
+    and returns the complete analysis including NPV and ROI calculations.
+    """
+    try:
+        # Build command for headless_runner
+        cmd = [
+            "python",
+            "headless_runner.py",
+            "--lat", str(req.lat),
+            "--lon", str(req.lon),
+            "--scenario_year", str(req.scenario_year),
+            "--project_type", "agriculture",
+            "--crop_type", req.crop_type,
+            "--temp_delta", str(req.temp_delta),
+            "--rain_pct_change", str(req.rain_pct_change),
+        ]
+        
+        # Add financial overrides as environment variables
+        env = os.environ.copy()
+        if req.financial_overrides:
+            env["FINANCIAL_CAPEX"] = str(req.financial_overrides.capex_budget)
+            env["FINANCIAL_OPEX"] = str(req.financial_overrides.opex_annual)
+            env["FINANCIAL_DISCOUNT_RATE"] = str(req.financial_overrides.discount_rate_pct / 100.0)
+            env["FINANCIAL_YEARS"] = str(req.financial_overrides.asset_lifespan_years)
+        
+        # Run the headless_runner
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            env=env
+        )
+        
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Simulation failed: {result.stderr}"
+            )
+        
+        # Parse the JSON output
+        output = json.loads(result.stdout)
+        return output
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to parse simulation output: {str(e)}"
+        ) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/simulate/coastal")
+def run_coastal_simulation(req: CoastalRequest) -> dict:
+    """Run coastal flood risk simulation."""
+    try:
+        cmd = [
+            "python",
+            "headless_runner.py",
+            "--lat", str(req.lat),
+            "--lon", str(req.lon),
+            "--scenario_year", str(req.scenario_year),
+            "--project_type", "coastal",
+            "--slr_projection", str(req.slr_projection),
+            "--mangrove_width", str(req.mangrove_width),
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Simulation failed: {result.stderr}"
+            )
+        
+        output = json.loads(result.stdout)
+        return output
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/simulate/flood")
+def run_flood_simulation(req: FloodRequest) -> dict:
+    """Run flash flood risk simulation."""
+    try:
+        cmd = [
+            "python",
+            "headless_runner.py",
+            "--lat", str(req.lat),
+            "--lon", str(req.lon),
+            "--scenario_year", str(req.scenario_year),
+            "--project_type", "flood",
+            "--rain_intensity", str(req.rain_intensity),
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Simulation failed: {result.stderr}"
+            )
+        
+        output = json.loads(result.stdout)
+        return output
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
