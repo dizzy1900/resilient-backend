@@ -270,6 +270,50 @@ def get_monthly_data(lat: float, lon: float) -> dict:
     }
 
 
+def get_terrain_data(lat: float, lon: float) -> dict:
+    """
+    Get terrain data including elevation and soil pH for a location.
+    
+    Args:
+        lat: Latitude
+        lon: Longitude
+    
+    Returns:
+        Dictionary with 'elevation_m' (elevation in meters) and 'soil_ph' (pH value)
+    """
+    authenticate_gee()
+    
+    point = ee.Geometry.Point([lon, lat])
+    
+    # 1. Fetch Elevation from SRTM 30m DEM
+    elevation_img = ee.Image('USGS/SRTMGL1_003').select('elevation')
+    elevation_value = elevation_img.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=point,
+        scale=30
+    ).get('elevation')
+    elevation_m = ee.Number(elevation_value).getInfo()
+    
+    # 2. Fetch Soil pH from OpenLandMap
+    # Dataset: OpenLandMap Soil pH in H2O at 0cm depth
+    # Band 'b0' contains pH * 10 (e.g., 65 = pH 6.5)
+    soil_ph_img = ee.Image('OpenLandMap/SOL/SOL_PH-H2O_USDA-4C1A2A_M/v02').select('b0')
+    soil_ph_value = soil_ph_img.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=point,
+        scale=250
+    ).get('b0')
+    
+    # Convert from pH * 10 to actual pH
+    soil_ph_raw = ee.Number(soil_ph_value).getInfo()
+    soil_ph = soil_ph_raw / 10.0 if soil_ph_raw is not None else None
+    
+    return {
+        'elevation_m': elevation_m,
+        'soil_ph': soil_ph
+    }
+
+
 def analyze_spatial_viability(lat: float, lon: float, temp_increase_c: float) -> dict:
     """
     Analyze spatial viability of cropland under temperature increase scenarios.

@@ -20,6 +20,7 @@ MarkupSafe==3.0.3
 # FastAPI Simulation Service
 fastapi==0.109.0
 uvicorn==0.27.0
+python-multipart==0.0.9
 
 # FastAPI/ASGI dependency pins (kept explicit to support --no-deps installs)
 starlette==0.35.1
@@ -49,6 +50,12 @@ httplib2==0.31.2
 numpy==2.4.1           # Core numerical computing
 pandas==3.0.0          # Data manipulation and analysis
 scipy==1.17.0          # Scientific computing
+
+# Geospatial Libraries
+shapely==2.0.6         # Geometric operations and spatial analysis
+geopandas==1.0.1       # Geospatial data manipulation
+fiona==1.10.1          # Geospatial file I/O (required by geopandas)
+pyproj==3.7.0          # Cartographic projections (required by geopandas)
 
 # Machine Learning
 scikit-learn==1.8.0    # ML algorithms and surrogate models

@@ -33,6 +33,7 @@ Output:
 import argparse
 import json
 import math
+import os
 import sys
 from datetime import datetime, timedelta
 
@@ -154,9 +155,9 @@ def run_agriculture_analysis(args, weather_data):
     avoided_loss = resilient_yield - standard_yield
     percentage_improvement = (avoided_loss / standard_yield * 100) if standard_yield > 0 else 0.0
     
-    # Calculate ROI (using research-based defaults)
-    capex = 2000.0
-    opex = 425.0
+    # Calculate ROI - use environment variable overrides if provided, otherwise use defaults
+    capex = float(os.getenv('FINANCIAL_CAPEX', '2000.0'))
+    opex = float(os.getenv('FINANCIAL_OPEX', '425.0'))
     yield_benefit_pct = 30.0
 
     # Approximate commodity prices (USD/ton) for comparative ROI.
@@ -170,8 +171,8 @@ def run_agriculture_analysis(args, weather_data):
     }
     price_per_ton = prices_per_ton.get(args.crop_type, 4000.0)
 
-    analysis_years = 10
-    discount_rate = 0.10
+    analysis_years = int(os.getenv('FINANCIAL_YEARS', '10'))
+    discount_rate = float(os.getenv('FINANCIAL_DISCOUNT_RATE', '0.10'))
     
     # Generate cash flows
     incremental_cash_flows = []
