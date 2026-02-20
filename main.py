@@ -2,6 +2,7 @@
 Climate Resilience Engine - Flask API
 """
 
+import io
 import os
 import pickle
 import threading
@@ -1804,6 +1805,66 @@ def predict_portfolio():
             'status': 'error',
             'message': f'Portfolio analysis failed: {str(e)}',
             'code': 'PORTFOLIO_ERROR'
+        }), 500
+
+
+@app.route('/api/v1/analyze-portfolio', methods=['POST'])
+def analyze_portfolio():
+    """Analyze a portfolio of assets from a CSV file upload."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({
+                'status': 'error',
+                'message': 'No file uploaded. Send a CSV file with key "file".',
+                'code': 'NO_FILE'
+            }), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({
+                'status': 'error',
+                'message': 'Empty filename',
+                'code': 'EMPTY_FILENAME'
+            }), 400
+
+        contents = file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+
+        # Standardize column names (lowercase, strip whitespace)
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
+        # Basic mock processing for the batch
+        asset_results = []
+        total_value = 0
+
+        for _, row in df.iterrows():
+            val = float(row.get('asset_value', 0))
+            total_value += val
+            asset_results.append({
+                "lat": float(row.get('lat', 0)),
+                "lon": float(row.get('lon', 0)),
+                "crop_type": str(row.get('crop_type', 'unknown')),
+                "value": val,
+                "resilience_score": 75  # Mock score for now
+            })
+
+        return jsonify({
+            'status': 'success',
+            'data': {
+                "portfolio_summary": {
+                    "total_portfolio_value": total_value,
+                    "total_value_at_risk": total_value * 0.15,
+                    "average_resilience_score": 75
+                },
+                "asset_results": asset_results
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'code': 'PORTFOLIO_ANALYSIS_ERROR'
         }), 500
 
 
