@@ -20,6 +20,7 @@ MarkupSafe==3.0.3
 # FastAPI Simulation Service
 fastapi==0.109.0
 uvicorn==0.27.0
+python-multipart==0.0.9
 
 # FastAPI/ASGI dependency pins (kept explicit to support --no-deps installs)
 starlette==0.35.1
