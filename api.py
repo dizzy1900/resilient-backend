@@ -13,6 +13,7 @@ Or:
 
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import json
@@ -23,6 +24,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import pandas as pd
+
 from io import BytesIO
 
 from physics_engine import calculate_yield
@@ -448,35 +450,23 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
         # Read file contents asynchronously
         contents = await file.read()
         
-        # Load bytes into an in-memory buffer
-        buffer = BytesIO(contents)
-        
         # Parse CSV into DataFrame
-        df = pd.read_csv(buffer)
+        df = pd.read_csv(io.BytesIO(contents))
         
-        # --- Aggressive CSV cleaning ---
+        # Strip whitespace and make lowercase for all column names
+        df.columns = df.columns.astype(str).str.strip().str.lower()
+        # Map the columns dynamically
+        lat_col = next((c for c in df.columns if 'lat' in c), 'lat')
+        lon_col = next((c for c in df.columns if 'lon' in c or 'lng' in c), 'lon')
+        val_col = next((c for c in df.columns if 'val' in c), 'asset_value')
+        crop_col = next((c for c in df.columns if 'crop' in c), 'crop_type')
+        
         df.dropna(how='all', inplace=True)
         df.dropna(axis=1, how='all', inplace=True)
-        df.columns = [str(c).strip().lower() for c in df.columns]
         
-        # Dynamic column detection (handles common CSV header variations)
-        lat_col = next((c for c in df.columns if c in ['lat', 'latitude']), 'lat')
-        lon_col = next((c for c in df.columns if c in ['lon', 'longitude', 'lng']), 'lon')
-        val_col = next((c for c in df.columns if c in ['value', 'asset_value', 'portfolio_value']), 'asset_value')
-        crop_col = next((c for c in df.columns if c in ['crop', 'crop_type', 'asset_type']), 'crop_type')
-        
-        # Rename detected columns to canonical names for downstream processing
-        df.rename(columns={
-            lat_col: 'lat',
-            lon_col: 'lon',
-            val_col: 'asset_value',
-            crop_col: 'crop_type',
-        }, inplace=True)
-        
-        # Validate required columns (after cleaning + renaming)
-        required_columns = ['lat', 'lon', 'asset_value', 'crop_type']
+        # Validate required columns
+        required_columns = [lat_col, lon_col, val_col, crop_col]
         missing_columns = [col for col in required_columns if col not in df.columns]
-        
         if missing_columns:
             raise HTTPException(
                 status_code=400,
@@ -484,8 +474,19 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
                        f"Detected columns: {list(df.columns)}"
             )
         
-        # Convert DataFrame to list of dictionaries
-        records = df.to_dict(orient='records')
+        # Build records using dynamic column names (bulletproof parsing)
+        records = []
+        for idx, row in df.iterrows():
+            record = {
+                "lat": float(row.get(lat_col, 0)),
+                "lon": float(row.get(lon_col, 0)),
+                "asset_value": float(row.get(val_col, 0)),
+                "crop_type": str(row.get(crop_col, "")),
+            }
+            for col in df.columns:
+                if col not in (lat_col, lon_col, val_col, crop_col):
+                    record[col] = row.get(col)
+            records.append(record)
         
         # Create async tasks for concurrent processing
         tasks = [process_single_asset(row, idx) for idx, row in enumerate(records)]
@@ -539,27 +540,23 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
             if resilience_scores else 0.0
         )
         
-        # Structure the final response
-        return {
-            "status": "completed",
-            "message": f"Processed {len(records)} assets ({len(successful)} successful, {len(failed)} failed)",
-            "portfolio_summary": {
-                "total_assets": len(records),
-                "successful_simulations": len(successful),
-                "failed_simulations": len(failed),
-                "total_portfolio_value_usd": round(float(total_portfolio_value), 2),
-                "total_value_at_risk_usd": round(float(total_value_at_risk), 2),
-                "average_resilience_score": round(float(average_resilience_score), 2),
-                "total_npv_usd": round(float(total_npv), 2),
-                "total_expected_loss_usd": round(float(total_expected_loss), 2),
-                "risk_exposure_pct": round(
-                    (total_value_at_risk / total_portfolio_value * 100) if total_portfolio_value > 0 else 0.0,
-                    2
-                ),
-                "crop_distribution": df['crop_type'].value_counts().to_dict()
-            },
-            "asset_results": results
+        # Structure the final response (no wrapper; return data directly)
+        portfolio_summary = {
+            "total_assets": len(records),
+            "successful_simulations": len(successful),
+            "failed_simulations": len(failed),
+            "total_portfolio_value_usd": round(float(total_portfolio_value), 2),
+            "total_value_at_risk_usd": round(float(total_value_at_risk), 2),
+            "average_resilience_score": round(float(average_resilience_score), 2),
+            "total_npv_usd": round(float(total_npv), 2),
+            "total_expected_loss_usd": round(float(total_expected_loss), 2),
+            "risk_exposure_pct": round(
+                (total_value_at_risk / total_portfolio_value * 100) if total_portfolio_value > 0 else 0.0,
+                2
+            ),
+            "crop_distribution": df[crop_col].value_counts().to_dict()
         }
+        return {"portfolio_summary": portfolio_summary, "asset_results": results}
         
     except pd.errors.EmptyDataError:
         raise HTTPException(
