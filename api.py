@@ -454,14 +454,34 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
         # Parse CSV into DataFrame
         df = pd.read_csv(buffer)
         
-        # Validate required columns
+        # --- Aggressive CSV cleaning ---
+        df.dropna(how='all', inplace=True)
+        df.dropna(axis=1, how='all', inplace=True)
+        df.columns = [str(c).strip().lower() for c in df.columns]
+        
+        # Dynamic column detection (handles common CSV header variations)
+        lat_col = next((c for c in df.columns if c in ['lat', 'latitude']), 'lat')
+        lon_col = next((c for c in df.columns if c in ['lon', 'longitude', 'lng']), 'lon')
+        val_col = next((c for c in df.columns if c in ['value', 'asset_value', 'portfolio_value']), 'asset_value')
+        crop_col = next((c for c in df.columns if c in ['crop', 'crop_type', 'asset_type']), 'crop_type')
+        
+        # Rename detected columns to canonical names for downstream processing
+        df.rename(columns={
+            lat_col: 'lat',
+            lon_col: 'lon',
+            val_col: 'asset_value',
+            crop_col: 'crop_type',
+        }, inplace=True)
+        
+        # Validate required columns (after cleaning + renaming)
         required_columns = ['lat', 'lon', 'asset_value', 'crop_type']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns: {', '.join(missing_columns)}"
+                detail=f"Missing required columns: {', '.join(missing_columns)}. "
+                       f"Detected columns: {list(df.columns)}"
             )
         
         # Convert DataFrame to list of dictionaries
