@@ -452,9 +452,8 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
         
         # Parse CSV into DataFrame
         df = pd.read_csv(io.BytesIO(contents))
-        
-        # Strip whitespace and make lowercase for all column names
-        df.columns = df.columns.astype(str).str.strip().str.lower()
+        # Force lowercase and remove EVERYTHING except letters, numbers, and underscores
+        df.columns = df.columns.astype(str).str.lower().str.replace(r'[^a-z0-9_]', '', regex=True)
         # Map the columns dynamically
         lat_col = next((c for c in df.columns if 'lat' in c), 'lat')
         lon_col = next((c for c in df.columns if 'lon' in c or 'lng' in c), 'lon')
@@ -476,12 +475,20 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
         
         # Build records using dynamic column names (bulletproof parsing)
         records = []
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
+            raw_val = str(row.get(val_col, '0')).replace('$', '').replace(',', '')
+            try:
+                val = float(raw_val)
+            except ValueError:
+                val = 0.0
+            lat = float(row.get(lat_col, 0.0))
+            lon = float(row.get(lon_col, 0.0))
+            crop = str(row.get(crop_col, 'unknown'))
             record = {
-                "lat": float(row.get(lat_col, 0)),
-                "lon": float(row.get(lon_col, 0)),
-                "asset_value": float(row.get(val_col, 0)),
-                "crop_type": str(row.get(crop_col, "")),
+                "lat": lat,
+                "lon": lon,
+                "asset_value": val,
+                "crop_type": crop,
             }
             for col in df.columns:
                 if col not in (lat_col, lon_col, val_col, crop_col):
