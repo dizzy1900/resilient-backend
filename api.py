@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import subprocess
 import json
 import asyncio
@@ -457,7 +458,12 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
         # Map the columns dynamically
         lat_col = next((c for c in df.columns if 'lat' in c), 'lat')
         lon_col = next((c for c in df.columns if 'lon' in c or 'lng' in c), 'lon')
-        val_col = next((c for c in df.columns if 'val' in c), 'asset_value')
+        # Broaden the search for the value column
+        val_col = next((c for c in df.columns if any(x in c for x in ['val', 'price', 'amount', 'cost', 'invest', 'usd'])), None)
+        if not val_col and len(df.columns) > 2:
+            val_col = df.columns[2]  # Fallback to 3rd column
+        if not val_col:
+            val_col = 'asset_value'  # So required_columns validation reports a known name
         crop_col = next((c for c in df.columns if 'crop' in c), 'crop_type')
         
         df.dropna(how='all', inplace=True)
@@ -476,9 +482,19 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
         # Build records using dynamic column names (bulletproof parsing)
         records = []
         for _, row in df.iterrows():
-            raw_val = str(row.get(val_col, '0')).replace('$', '').replace(',', '')
+            raw_val = str(row.get(val_col, '0')).lower()
+            # Handle text suffixes
+            multiplier = 1
+            if 'm' in raw_val:
+                multiplier = 1000000
+            elif 'k' in raw_val:
+                multiplier = 1000
+            elif 'b' in raw_val:
+                multiplier = 1000000000
+            # Strip EVERYTHING except numbers and decimals (removes $, commas, spaces)
+            clean_val = re.sub(r'[^0-9.]', '', raw_val)
             try:
-                val = float(raw_val)
+                val = float(clean_val) * multiplier if clean_val else 0.0
             except ValueError:
                 val = 0.0
             lat = float(row.get(lat_col, 0.0))
