@@ -28,6 +28,8 @@ import pandas as pd
 
 from io import BytesIO
 
+from datetime import datetime
+
 from physics_engine import calculate_yield
 from spatial_engine import process_polygon_request
 
@@ -102,6 +104,16 @@ class PolygonRequest(BaseModel):
     slr_m: Optional[float] = Field(None, description="Sea level rise in meters")
     temp_delta: Optional[float] = Field(None, description="Temperature increase in °C")
     damage_factor: float = Field(1.0, ge=0.0, le=1.0, description="Expected damage ratio (0-1)")
+
+
+class CBARequest(BaseModel):
+    """Request for Cost-Benefit Analysis time series of a climate adaptation project."""
+    capex: float = Field(500000.0, description="Upfront capital expenditure in USD")
+    annual_opex: float = Field(25000.0, description="Annual operating expenditure in USD")
+    discount_rate: float = Field(0.08, description="Discount rate as decimal (e.g. 0.08 for 8%)")
+    lifespan_years: int = Field(30, ge=1, le=100, description="Project lifespan in years")
+    annual_baseline_damage: float = Field(100000.0, description="Annual cost of doing nothing in USD")
+    damage_reduction_pct: float = Field(0.80, ge=0.0, le=1.0, description="Fraction of damage the intervention prevents")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -596,6 +608,70 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
             status_code=500,
             detail=f"Portfolio analysis failed: {str(e)}"
         ) from e
+
+
+@app.post("/api/v1/finance/cba-series")
+def cba_series(req: CBARequest) -> dict:
+    """Calculate a Cost-Benefit Analysis time series for a climate adaptation project.
+
+    Compares a *Baseline* (no-action) scenario against an *Intervention* scenario
+    over the project lifespan and returns per-year costs, net benefit, and summary
+    metrics (NPV, ROI %, Breakeven Year).
+    """
+    try:
+        start_year = datetime.now().year
+
+        # Running totals
+        baseline_cumulative = 0.0
+        intervention_cumulative = req.capex  # Year-0 upfront cost (undiscounted)
+        breakeven_year: Optional[int] = None
+        time_series: list[dict] = []
+
+        residual_damage = req.annual_baseline_damage * (1.0 - req.damage_reduction_pct)
+
+        for yr in range(1, req.lifespan_years + 1):
+            discount_factor = (1.0 + req.discount_rate) ** yr
+
+            # Baseline: discounted annual damage accumulated
+            discounted_baseline = req.annual_baseline_damage / discount_factor
+            baseline_cumulative += discounted_baseline
+
+            # Intervention: discounted (opex + residual damage) accumulated
+            discounted_intervention = (req.annual_opex + residual_damage) / discount_factor
+            intervention_cumulative += discounted_intervention
+
+            net_benefit = baseline_cumulative - intervention_cumulative
+
+            if breakeven_year is None and net_benefit > 0:
+                breakeven_year = yr
+
+            time_series.append({
+                "year": start_year + yr,
+                "baseline_cost": round(baseline_cumulative, 2),
+                "intervention_cost": round(intervention_cumulative, 2),
+                "net_benefit": round(net_benefit, 2),
+            })
+
+        # Summary metrics
+        final_net_benefit = baseline_cumulative - intervention_cumulative
+        total_investment = req.capex + sum(
+            (req.annual_opex + residual_damage) / ((1.0 + req.discount_rate) ** yr)
+            for yr in range(1, req.lifespan_years + 1)
+        )
+        total_roi_pct = (final_net_benefit / total_investment * 100.0) if total_investment > 0 else 0.0
+
+        return {
+            "status": "success",
+            "summary_metrics": {
+                "npv": round(final_net_benefit, 2),
+                "total_roi_pct": round(total_roi_pct, 2),
+                "breakeven_year": breakeven_year,
+            },
+            "time_series": time_series,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def main() -> None:
