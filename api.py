@@ -25,6 +25,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import pandas as pd
+import numpy as np
 
 from io import BytesIO
 
@@ -121,6 +122,14 @@ class CBARequest(BaseModel):
     standard_interest_rate: float = Field(0.06, description="Standard bond interest rate as decimal (e.g. 0.06 for 6%)")
     greenium_discount_bps: float = Field(50.0, description="Green bond discount in basis points (e.g. 50 = 0.50%)")
     bond_tenor_years: int = Field(10, ge=1, le=50, description="Bond repayment period in years")
+
+
+class CVaRRequest(BaseModel):
+    """Request for Climate Value at Risk Monte Carlo simulation."""
+    asset_value: float = Field(5_000_000.0, description="Total asset value in USD")
+    mean_damage_pct: float = Field(0.02, description="Average annual damage as decimal (e.g. 0.02 for 2%)")
+    volatility_pct: float = Field(0.05, description="Damage volatility as decimal (e.g. 0.05 for 5%)")
+    num_simulations: int = Field(10_000, ge=100, le=1_000_000, description="Number of Monte Carlo trials")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -707,6 +716,53 @@ def cba_series(req: CBARequest) -> dict:
                 "total_greenium_savings": round(total_greenium_savings, 2),
             },
             "time_series": time_series,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/finance/cvar-simulation")
+def cvar_simulation(req: CVaRRequest) -> dict:
+    """Run a Monte Carlo simulation to estimate Climate Value at Risk (CVaR).
+
+    Generates *num_simulations* random annual damage percentages from a normal
+    distribution, floors them at zero, converts to monetary losses, and returns
+    summary risk metrics plus a 40-bin histogram for frontend charting.
+    """
+    try:
+        # Generate random damage percentages (normal distribution, floored at 0)
+        damage_pcts = np.random.normal(
+            req.mean_damage_pct, req.volatility_pct, req.num_simulations
+        )
+        damage_pcts = np.maximum(damage_pcts, 0.0)
+
+        # Convert to monetary losses
+        losses = damage_pcts * req.asset_value
+
+        # Key risk metrics
+        expected_loss = float(np.mean(losses))
+        cvar_95 = float(np.percentile(losses, 95))
+        cvar_99 = float(np.percentile(losses, 99))
+
+        # 40-bin histogram for frontend charting
+        counts, bin_edges = np.histogram(losses, bins=40)
+        distribution = [
+            {
+                "loss_amount": round(float(bin_edges[i]), 2),
+                "frequency": int(counts[i]),
+            }
+            for i in range(len(counts))
+        ]
+
+        return {
+            "status": "success",
+            "metrics": {
+                "expected_loss": round(expected_loss, 2),
+                "cvar_95": round(cvar_95, 2),
+                "cvar_99": round(cvar_99, 2),
+            },
+            "distribution": distribution,
         }
 
     except Exception as e:
