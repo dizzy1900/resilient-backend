@@ -114,6 +114,13 @@ class CBARequest(BaseModel):
     lifespan_years: int = Field(30, ge=1, le=100, description="Project lifespan in years")
     annual_baseline_damage: float = Field(100000.0, description="Annual cost of doing nothing in USD")
     damage_reduction_pct: float = Field(0.80, ge=0.0, le=1.0, description="Fraction of damage the intervention prevents")
+    # Parametric Insurance
+    base_insurance_premium: float = Field(50000.0, description="Annual insurance premium without intervention in USD")
+    insurance_reduction_pct: float = Field(0.25, ge=0.0, le=1.0, description="Premium reduction from intervention (e.g. 0.25 for 25%)")
+    # Green Bond financing
+    standard_interest_rate: float = Field(0.06, description="Standard bond interest rate as decimal (e.g. 0.06 for 6%)")
+    greenium_discount_bps: float = Field(50.0, description="Green bond discount in basis points (e.g. 50 = 0.50%)")
+    bond_tenor_years: int = Field(10, ge=1, le=50, description="Bond repayment period in years")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -616,12 +623,33 @@ def cba_series(req: CBARequest) -> dict:
 
     Compares a *Baseline* (no-action) scenario against an *Intervention* scenario
     over the project lifespan and returns per-year costs, net benefit, and summary
-    metrics (NPV, ROI %, Breakeven Year).
+    metrics (NPV, ROI %, Breakeven Year).  Includes Green Bond financing and
+    Parametric Insurance savings.
     """
     try:
         start_year = datetime.now().year
 
-        # Running totals
+        # --- Bond financing metrics ---
+        standard_rate = req.standard_interest_rate
+        green_rate = req.standard_interest_rate - (req.greenium_discount_bps / 10_000)
+        n = req.bond_tenor_years
+        principal = req.capex
+
+        def _annuity_payment(p: float, r: float, periods: int) -> float:
+            """Standard loan amortization: PMT = P * r / (1 - (1+r)^-n)"""
+            if r == 0:
+                return p / periods
+            return p * r / (1.0 - (1.0 + r) ** -periods)
+
+        standard_annual_payment = _annuity_payment(principal, standard_rate, n)
+        green_annual_payment = _annuity_payment(principal, green_rate, n)
+        total_greenium_savings = (standard_annual_payment - green_annual_payment) * n
+
+        # --- Insurance premiums ---
+        baseline_insurance = req.base_insurance_premium
+        intervention_insurance = req.base_insurance_premium * (1.0 - req.insurance_reduction_pct)
+
+        # --- Time-series accumulators ---
         baseline_cumulative = 0.0
         intervention_cumulative = req.capex  # Year-0 upfront cost (undiscounted)
         breakeven_year: Optional[int] = None
@@ -632,12 +660,14 @@ def cba_series(req: CBARequest) -> dict:
         for yr in range(1, req.lifespan_years + 1):
             discount_factor = (1.0 + req.discount_rate) ** yr
 
-            # Baseline: discounted annual damage accumulated
-            discounted_baseline = req.annual_baseline_damage / discount_factor
+            # Baseline: discounted (damage + full insurance premium)
+            discounted_baseline = (req.annual_baseline_damage + baseline_insurance) / discount_factor
             baseline_cumulative += discounted_baseline
 
-            # Intervention: discounted (opex + residual damage) accumulated
-            discounted_intervention = (req.annual_opex + residual_damage) / discount_factor
+            # Intervention: discounted (opex + residual damage + reduced insurance)
+            discounted_intervention = (
+                req.annual_opex + residual_damage + intervention_insurance
+            ) / discount_factor
             intervention_cumulative += discounted_intervention
 
             net_benefit = baseline_cumulative - intervention_cumulative
@@ -652,10 +682,11 @@ def cba_series(req: CBARequest) -> dict:
                 "net_benefit": round(net_benefit, 2),
             })
 
-        # Summary metrics
+        # --- Summary metrics ---
         final_net_benefit = baseline_cumulative - intervention_cumulative
         total_investment = req.capex + sum(
-            (req.annual_opex + residual_damage) / ((1.0 + req.discount_rate) ** yr)
+            (req.annual_opex + residual_damage + intervention_insurance)
+            / ((1.0 + req.discount_rate) ** yr)
             for yr in range(1, req.lifespan_years + 1)
         )
         total_roi_pct = (final_net_benefit / total_investment * 100.0) if total_investment > 0 else 0.0
@@ -666,6 +697,14 @@ def cba_series(req: CBARequest) -> dict:
                 "npv": round(final_net_benefit, 2),
                 "total_roi_pct": round(total_roi_pct, 2),
                 "breakeven_year": breakeven_year,
+            },
+            "bond_metrics": {
+                "principal": principal,
+                "standard_rate": round(standard_rate, 6),
+                "green_rate": round(green_rate, 6),
+                "standard_annual_payment": round(standard_annual_payment, 2),
+                "green_annual_payment": round(green_annual_payment, 2),
+                "total_greenium_savings": round(total_greenium_savings, 2),
             },
             "time_series": time_series,
         }
