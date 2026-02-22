@@ -122,6 +122,9 @@ class CBARequest(BaseModel):
     standard_interest_rate: float = Field(0.06, description="Standard bond interest rate as decimal (e.g. 0.06 for 6%)")
     greenium_discount_bps: float = Field(50.0, description="Green bond discount in basis points (e.g. 50 = 0.50%)")
     bond_tenor_years: int = Field(10, ge=1, le=50, description="Bond repayment period in years")
+    # Carbon Credit revenue (Layered Value Stacking)
+    annual_carbon_credits: float = Field(0.0, description="Tons of CO2 sequestered per year")
+    carbon_price_per_ton: float = Field(50.0, description="Price per ton of CO2 in USD")
 
 
 class CVaRRequest(BaseModel):
@@ -632,8 +635,8 @@ def cba_series(req: CBARequest) -> dict:
 
     Compares a *Baseline* (no-action) scenario against an *Intervention* scenario
     over the project lifespan and returns per-year costs, net benefit, and summary
-    metrics (NPV, ROI %, Breakeven Year).  Includes Green Bond financing and
-    Parametric Insurance savings.
+    metrics (NPV, ROI %, Breakeven Year).  Includes Green Bond financing,
+    Parametric Insurance savings, and Carbon Credit revenue (Layered Value Stacking).
     """
     try:
         start_year = datetime.now().year
@@ -656,7 +659,10 @@ def cba_series(req: CBARequest) -> dict:
 
         # --- Insurance premiums ---
         baseline_insurance = req.base_insurance_premium
-        intervention_insurance = req.base_insurance_premium * (1.0 - req.insurance_reduction_pct)
+        adjusted_insurance_premium = req.base_insurance_premium * (1.0 - req.insurance_reduction_pct)
+
+        # --- Carbon Credit revenue (Layered Value Stacking) ---
+        annual_carbon_revenue = req.annual_carbon_credits * req.carbon_price_per_ton
 
         # --- Time-series accumulators ---
         baseline_cumulative = 0.0
@@ -673,10 +679,11 @@ def cba_series(req: CBARequest) -> dict:
             discounted_baseline = (req.annual_baseline_damage + baseline_insurance) / discount_factor
             baseline_cumulative += discounted_baseline
 
-            # Intervention: discounted (opex + residual damage + reduced insurance)
-            discounted_intervention = (
-                req.annual_opex + residual_damage + intervention_insurance
-            ) / discount_factor
+            # Intervention: discounted (opex + residual damage + reduced insurance - carbon revenue)
+            intervention_annual_cost = (
+                req.annual_opex + residual_damage + adjusted_insurance_premium - annual_carbon_revenue
+            )
+            discounted_intervention = intervention_annual_cost / discount_factor
             intervention_cumulative += discounted_intervention
 
             net_benefit = baseline_cumulative - intervention_cumulative
@@ -694,7 +701,7 @@ def cba_series(req: CBARequest) -> dict:
         # --- Summary metrics ---
         final_net_benefit = baseline_cumulative - intervention_cumulative
         total_investment = req.capex + sum(
-            (req.annual_opex + residual_damage + intervention_insurance)
+            (req.annual_opex + residual_damage + adjusted_insurance_premium - annual_carbon_revenue)
             / ((1.0 + req.discount_rate) ** yr)
             for yr in range(1, req.lifespan_years + 1)
         )
@@ -706,6 +713,7 @@ def cba_series(req: CBARequest) -> dict:
                 "npv": round(final_net_benefit, 2),
                 "total_roi_pct": round(total_roi_pct, 2),
                 "breakeven_year": breakeven_year,
+                "annual_carbon_revenue": round(annual_carbon_revenue, 2),
             },
             "bond_metrics": {
                 "principal": principal,
