@@ -118,5 +118,6 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
+echo "=== Starting FastAPI (api:app) ==="
 echo "=== Starting Uvicorn (FastAPI) ==="
 exec uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
