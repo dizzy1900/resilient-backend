@@ -149,7 +149,11 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "awake",
+        "environment": "production",
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.post("/simulate")
