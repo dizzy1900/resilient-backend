@@ -654,6 +654,9 @@ def predict_coastal():
         initial_lifespan_years = int(data.get('initial_lifespan_years', 30))
         sea_level_rise = float(data.get('sea_level_rise', 0.0))
         intervention = str(data.get('intervention', '')).strip()
+        # Optional: Cascading Network Failures (Business Interruptions)
+        daily_revenue = float(data.get('daily_revenue', 0))
+        expected_downtime_days = int(data.get('expected_downtime_days', 0))
         
         # Log the request for debugging (remove in production)
         import sys
