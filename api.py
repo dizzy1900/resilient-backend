@@ -25,8 +25,11 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import pandas as pd
+import numpy as np
 
 from io import BytesIO
+
+from datetime import datetime
 
 from physics_engine import calculate_yield
 from spatial_engine import process_polygon_request
@@ -79,6 +82,8 @@ class CoastalRequest(BaseModel):
     initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days (cascading network failures)")
+    daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
+    expected_downtime_days: int = Field(0, ge=0, description="Expected infrastructure downtime days without intervention")
 
 
 class FloodRequest(BaseModel):
@@ -91,6 +96,8 @@ class FloodRequest(BaseModel):
     global_warming: float = Field(0.0, description="Global warming in °C for lifespan penalty (e.g. 1.5, 2.0)")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days (cascading network failures)")
+    daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
+    expected_downtime_days: int = Field(0, ge=0, description="Expected infrastructure downtime days without intervention")
 
 
 class PolygonRequest(BaseModel):
@@ -111,13 +118,41 @@ class PolygonRequest(BaseModel):
     damage_factor: float = Field(1.0, ge=0.0, le=1.0, description="Expected damage ratio (0-1)")
 
 
+class CBARequest(BaseModel):
+    """Request for Cost-Benefit Analysis time series of a climate adaptation project."""
+    capex: float = Field(500000.0, description="Upfront capital expenditure in USD")
+    annual_opex: float = Field(25000.0, description="Annual operating expenditure in USD")
+    discount_rate: float = Field(0.08, description="Discount rate as decimal (e.g. 0.08 for 8%)")
+    lifespan_years: int = Field(30, ge=1, le=100, description="Project lifespan in years")
+    annual_baseline_damage: float = Field(100000.0, description="Annual cost of doing nothing in USD")
+    damage_reduction_pct: float = Field(0.80, ge=0.0, le=1.0, description="Fraction of damage the intervention prevents")
+    # Parametric Insurance
+    base_insurance_premium: float = Field(50000.0, description="Annual insurance premium without intervention in USD")
+    insurance_reduction_pct: float = Field(0.25, ge=0.0, le=1.0, description="Premium reduction from intervention (e.g. 0.25 for 25%)")
+    # Green Bond financing
+    standard_interest_rate: float = Field(0.06, description="Standard bond interest rate as decimal (e.g. 0.06 for 6%)")
+    greenium_discount_bps: float = Field(50.0, description="Green bond discount in basis points (e.g. 50 = 0.50%)")
+    bond_tenor_years: int = Field(10, ge=1, le=50, description="Bond repayment period in years")
+    # Carbon Credit revenue (Layered Value Stacking)
+    annual_carbon_credits: float = Field(0.0, description="Tons of CO2 sequestered per year")
+    carbon_price_per_ton: float = Field(50.0, description="Price per ton of CO2 in USD")
+
+
+class CVaRRequest(BaseModel):
+    """Request for Climate Value at Risk Monte Carlo simulation."""
+    asset_value: float = Field(5_000_000.0, description="Total asset value in USD")
+    mean_damage_pct: float = Field(0.02, description="Average annual damage as decimal (e.g. 0.02 for 2%)")
+    volatility_pct: float = Field(0.05, description="Damage volatility as decimal (e.g. 0.05 for 5%)")
+    num_simulations: int = Field(10_000, ge=100, le=1_000_000, description="Number of Monte Carlo trials")
+
+
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
 # Match the permissive CORS behavior of the Flask app.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -125,7 +160,11 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "awake",
+        "environment": "production",
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.post("/simulate")
@@ -603,6 +642,154 @@ async def analyze_portfolio(file: UploadFile = File(...)) -> dict:
             status_code=500,
             detail=f"Portfolio analysis failed: {str(e)}"
         ) from e
+
+
+@app.post("/api/v1/finance/cba-series")
+def cba_series(req: CBARequest) -> dict:
+    """Calculate a Cost-Benefit Analysis time series for a climate adaptation project.
+
+    Compares a *Baseline* (no-action) scenario against an *Intervention* scenario
+    over the project lifespan and returns per-year costs, net benefit, and summary
+    metrics (NPV, ROI %, Breakeven Year).  Includes Green Bond financing,
+    Parametric Insurance savings, and Carbon Credit revenue (Layered Value Stacking).
+    """
+    try:
+        start_year = datetime.now().year
+
+        # --- Bond financing metrics ---
+        standard_rate = req.standard_interest_rate
+        green_rate = req.standard_interest_rate - (req.greenium_discount_bps / 10_000)
+        n = req.bond_tenor_years
+        principal = req.capex
+
+        def _annuity_payment(p: float, r: float, periods: int) -> float:
+            """Standard loan amortization: PMT = P * r / (1 - (1+r)^-n)"""
+            if r == 0:
+                return p / periods
+            return p * r / (1.0 - (1.0 + r) ** -periods)
+
+        standard_annual_payment = _annuity_payment(principal, standard_rate, n)
+        green_annual_payment = _annuity_payment(principal, green_rate, n)
+        total_greenium_savings = (standard_annual_payment - green_annual_payment) * n
+
+        # --- Insurance premiums ---
+        baseline_insurance = req.base_insurance_premium
+        adjusted_insurance_premium = req.base_insurance_premium * (1.0 - req.insurance_reduction_pct)
+
+        # --- Carbon Credit revenue (Layered Value Stacking) ---
+        annual_carbon_revenue = req.annual_carbon_credits * req.carbon_price_per_ton
+
+        # --- Time-series accumulators ---
+        baseline_cumulative = 0.0
+        intervention_cumulative = req.capex  # Year-0 upfront cost (undiscounted)
+        breakeven_year: Optional[int] = None
+        time_series: list[dict] = []
+
+        residual_damage = req.annual_baseline_damage * (1.0 - req.damage_reduction_pct)
+
+        for yr in range(1, req.lifespan_years + 1):
+            discount_factor = (1.0 + req.discount_rate) ** yr
+
+            # Baseline: discounted (damage + full insurance premium)
+            discounted_baseline = (req.annual_baseline_damage + baseline_insurance) / discount_factor
+            baseline_cumulative += discounted_baseline
+
+            # Intervention: discounted (opex + residual damage + reduced insurance - carbon revenue)
+            intervention_annual_cost = (
+                req.annual_opex + residual_damage + adjusted_insurance_premium - annual_carbon_revenue
+            )
+            discounted_intervention = intervention_annual_cost / discount_factor
+            intervention_cumulative += discounted_intervention
+
+            net_benefit = baseline_cumulative - intervention_cumulative
+
+            if breakeven_year is None and net_benefit > 0:
+                breakeven_year = yr
+
+            time_series.append({
+                "year": start_year + yr,
+                "baseline_cost": round(baseline_cumulative, 2),
+                "intervention_cost": round(intervention_cumulative, 2),
+                "net_benefit": round(net_benefit, 2),
+            })
+
+        # --- Summary metrics ---
+        final_net_benefit = baseline_cumulative - intervention_cumulative
+        total_investment = req.capex + sum(
+            (req.annual_opex + residual_damage + adjusted_insurance_premium - annual_carbon_revenue)
+            / ((1.0 + req.discount_rate) ** yr)
+            for yr in range(1, req.lifespan_years + 1)
+        )
+        total_roi_pct = (final_net_benefit / total_investment * 100.0) if total_investment > 0 else 0.0
+
+        return {
+            "status": "success",
+            "summary_metrics": {
+                "npv": round(final_net_benefit, 2),
+                "total_roi_pct": round(total_roi_pct, 2),
+                "breakeven_year": breakeven_year,
+                "annual_carbon_revenue": round(annual_carbon_revenue, 2),
+            },
+            "bond_metrics": {
+                "principal": principal,
+                "standard_rate": round(standard_rate, 6),
+                "green_rate": round(green_rate, 6),
+                "standard_annual_payment": round(standard_annual_payment, 2),
+                "green_annual_payment": round(green_annual_payment, 2),
+                "total_greenium_savings": round(total_greenium_savings, 2),
+            },
+            "time_series": time_series,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/finance/cvar-simulation")
+def cvar_simulation(req: CVaRRequest) -> dict:
+    """Run a Monte Carlo simulation to estimate Climate Value at Risk (CVaR).
+
+    Generates *num_simulations* random annual damage percentages from a normal
+    distribution, floors them at zero, converts to monetary losses, and returns
+    summary risk metrics plus a 40-bin histogram for frontend charting.
+    """
+    try:
+        # Generate random damage percentages (normal distribution, floored at 0)
+        damage_pcts = np.random.normal(
+            req.mean_damage_pct, req.volatility_pct, req.num_simulations
+        )
+        damage_pcts = np.maximum(damage_pcts, 0.0)
+
+        # Convert to monetary losses
+        losses = damage_pcts * req.asset_value
+
+        # Key risk metrics
+        expected_loss = float(np.mean(losses))
+        cvar_95 = float(np.percentile(losses, 95))
+        cvar_99 = float(np.percentile(losses, 99))
+
+        # 40-bin histogram for frontend charting
+        counts, bin_edges = np.histogram(losses, bins=40)
+        distribution = [
+            {
+                "loss_amount": round(float(bin_edges[i]), 2),
+                "frequency": int(counts[i]),
+            }
+            for i in range(len(counts))
+        ]
+
+        return {
+            "status": "success",
+            "metrics": {
+                "expected_loss": round(expected_loss, 2),
+                "cvar_95": round(cvar_95, 2),
+                "cvar_99": round(cvar_99, 2),
+            },
+            "distribution": distribution,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def main() -> None:

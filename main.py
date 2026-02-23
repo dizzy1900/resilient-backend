@@ -655,6 +655,7 @@ def predict_coastal():
         sea_level_rise = float(data.get('sea_level_rise', 0.0))
         intervention = str(data.get('intervention', '')).strip()
         # Optional: Cascading Network Failures (Business Interruptions)
+        # Optional: Cascading Network Failures (Business Interruption)
         daily_revenue = float(data.get('daily_revenue', 0))
         expected_downtime_days = int(data.get('expected_downtime_days', 0))
         
@@ -733,6 +734,16 @@ def predict_coastal():
         # Calculate percentage improvement
         percentage_improvement = (avoided_runup / runup_a * 100) if runup_a > 0 else 0
 
+        # Business interruption (Cascading Network Failures): baseline = daily_revenue * expected_downtime_days;
+        # with mangrove intervention assume 80% downtime reduction → avoided_business_interruption
+        from infrastructure_engine import calculate_avoided_business_interruption
+        has_intervention = mangrove_width > 0
+        interruption = calculate_avoided_business_interruption(
+            daily_revenue=daily_revenue,
+            expected_downtime_days=expected_downtime_days,
+            has_intervention=has_intervention,
+        )
+
         return jsonify({
             'status': 'success',
             'data': {
@@ -743,6 +754,8 @@ def predict_coastal():
                     'initial_lifespan_years': initial_lifespan_years,
                     'sea_level_rise_m': sea_level_rise,
                     'intervention': intervention or None
+                    'daily_revenue': daily_revenue,
+                    'expected_downtime_days': expected_downtime_days
                 },
                 'coastal_params': {
                     'detected_slope_pct': round(slope, 2),
@@ -756,7 +769,8 @@ def predict_coastal():
                     'avoided_loss': round(avoided_damage_usd, 2),
                     'avoided_runup_m': round(avoided_runup, 4),
                     'percentage_improvement': round(percentage_improvement, 2),
-                    'recommendation': 'with_mangroves' if avoided_runup > 0 else 'baseline'
+                    'recommendation': 'with_mangroves' if avoided_runup > 0 else 'baseline',
+                    'avoided_business_interruption': interruption['avoided_business_interruption']
                 },
                 'asset_depreciation': {
                     'adjusted_lifespan': adjusted_lifespan,
@@ -770,7 +784,8 @@ def predict_coastal():
                 # Add flat fields for frontend compatibility
                 'slope': round(slope / 100, 4),  # Convert percentage to decimal (e.g., 14.12% -> 0.1412)
                 'storm_wave': round(wave_height, 2),
-                'avoided_loss': round(avoided_damage_usd, 2)
+                'avoided_loss': round(avoided_damage_usd, 2),
+                'avoided_business_interruption': interruption['avoided_business_interruption']
             }
         }), 200
 
@@ -1230,6 +1245,9 @@ def predict_flood():
         adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
             initial_lifespan_years, raw_penalty, has_intervention_rescue
         )
+        # Optional: Cascading Network Failures (Business Interruption)
+        daily_revenue = float(data.get('daily_revenue', 0))
+        expected_downtime_days = int(data.get('expected_downtime_days', 0))
         
         # Log the request for debugging
         import sys
@@ -1361,6 +1379,16 @@ def predict_flood():
         # Use building_value and num_buildings from request, or defaults
         # This allows frontend to control the economic calculation
         avoided_damage_usd = (avoided_damage_pct / 100) * num_buildings * building_value
+
+        # Business interruption (Cascading Network Failures): with green infrastructure (e.g. Sponge City)
+        # assume 80% downtime reduction → avoided_business_interruption
+        from infrastructure_engine import calculate_avoided_business_interruption
+        has_intervention = intervention_type != 'none'
+        interruption = calculate_avoided_business_interruption(
+            daily_revenue=daily_revenue,
+            expected_downtime_days=expected_downtime_days,
+            has_intervention=has_intervention,
+        )
         
         return jsonify({
             'status': 'success',
@@ -1378,6 +1406,8 @@ def predict_flood():
                 'asset_depreciation': {
                     'adjusted_lifespan': adjusted_lifespan,
                     'lifespan_penalty': lifespan_penalty
+                    'daily_revenue': daily_revenue,
+                    'expected_downtime_days': expected_downtime_days
                 },
                 'imperviousness_change': {
                     'baseline': round(current_imperviousness, 3),
@@ -1396,7 +1426,8 @@ def predict_flood():
                     'intervention_damage_pct': round(intervention_damage_pct, 2),
                     'avoided_damage_pct': round(avoided_damage_pct, 2),
                     'avoided_loss': round(avoided_damage_usd, 2),
-                    'recommendation': intervention_type if avoided_depth_cm > 0 else 'none'
+                    'recommendation': intervention_type if avoided_depth_cm > 0 else 'none',
+                    'avoided_business_interruption': interruption['avoided_business_interruption']
                 },
                 'economic_assumptions': {
                     'num_buildings': num_buildings,
@@ -1408,7 +1439,8 @@ def predict_flood():
                 # Add flat fields for frontend compatibility
                 'depth_baseline': round(depth_baseline, 2),
                 'depth_intervention': round(depth_intervention, 2),
-                'avoided_loss': round(avoided_damage_usd, 2)
+                'avoided_loss': round(avoided_damage_usd, 2),
+                'avoided_business_interruption': interruption['avoided_business_interruption']
             }
         }), 200
 

@@ -215,6 +215,52 @@ def calculate_infrastructure_roi(
     }
 
 
+# Default downtime reduction when an intervention is in place (e.g. Sea Wall, Sponge City)
+DOWNTIME_REDUCTION_WITH_INTERVENTION = 0.80  # 80% reduction
+
+
+def calculate_avoided_business_interruption(
+    daily_revenue: float,
+    expected_downtime_days: int,
+    has_intervention: bool,
+    downtime_reduction_pct: float = DOWNTIME_REDUCTION_WITH_INTERVENTION,
+) -> Dict:
+    """
+    Calculate baseline business interruption cost and avoided loss when an intervention
+    reduces effective downtime (Cascading Network Failures / Business Interruption).
+
+    Math:
+      baseline_interruption = daily_revenue * expected_downtime_days
+      If intervention: adapted_downtime_days = expected_downtime_days * (1 - downtime_reduction_pct)
+      adapted_interruption = daily_revenue * adapted_downtime_days
+      avoided_business_interruption = baseline_interruption - adapted_interruption
+
+    Args:
+        daily_revenue: Daily revenue (USD).
+        expected_downtime_days: Expected downtime days without intervention.
+        has_intervention: True if user selected an intervention (e.g. Sea Wall, Sponge City).
+        downtime_reduction_pct: Fraction of downtime avoided with intervention (default 0.80).
+
+    Returns:
+        Dict with baseline_interruption, adapted_interruption, avoided_business_interruption (all >= 0).
+    """
+    baseline_interruption = daily_revenue * max(0, expected_downtime_days)
+    if not has_intervention or expected_downtime_days <= 0:
+        return {
+            'baseline_interruption': round(baseline_interruption, 2),
+            'adapted_interruption': round(baseline_interruption, 2),
+            'avoided_business_interruption': 0.0,
+        }
+    adapted_downtime_days = max(0, expected_downtime_days * (1.0 - downtime_reduction_pct))
+    adapted_interruption = daily_revenue * adapted_downtime_days
+    avoided = baseline_interruption - adapted_interruption
+    return {
+        'baseline_interruption': round(baseline_interruption, 2),
+        'adapted_interruption': round(adapted_interruption, 2),
+        'avoided_business_interruption': round(avoided, 2),
+    }
+
+
 def _get_recommendation_reason(npv: float, bcr: float) -> str:
     """Generate investment recommendation reason based on NPV and BCR."""
     if npv > 0 and bcr > 1.0:

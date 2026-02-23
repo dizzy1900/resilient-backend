@@ -118,5 +118,6 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
-echo "=== Starting Gunicorn ==="
-exec gunicorn main:app --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120
+echo "=== Starting FastAPI (api:app) ==="
+echo "=== Starting Uvicorn (FastAPI) ==="
+exec uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
