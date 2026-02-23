@@ -98,6 +98,38 @@ FALLBACK_TERRAIN = {
     'soil_ph': 6.5
 }
 
+# --- Dynamic Asset Depreciation: lifespan penalty thresholds (adjustable) ---
+COASTAL_SLR_PENALTY_0_5M = 5   # years if sea_level_rise > 0.5 m
+COASTAL_SLR_PENALTY_1_0M = 12  # years if sea_level_rise > 1.0 m
+FLOOD_GW_PENALTY_1_5C = 4      # years if global_warming > 1.5 °C
+FLOOD_GW_PENALTY_2_0C = 10     # years if global_warming > 2.0 °C
+INTERVENTION_RESCUE_FRACTION = 0.2  # residual penalty after intervention (80% reduction)
+
+
+def _coastal_lifespan_penalty(sea_level_rise_m):
+    """Climate penalty (years) for coastal assets from sea level rise. Thresholds are configurable."""
+    if sea_level_rise_m > 1.0:
+        return COASTAL_SLR_PENALTY_1_0M
+    if sea_level_rise_m > 0.5:
+        return COASTAL_SLR_PENALTY_0_5M
+    return 0
+
+
+def _flood_lifespan_penalty(global_warming_c):
+    """Climate penalty (years) for flood/agri assets from global warming. Thresholds are configurable."""
+    if global_warming_c > 2.0:
+        return FLOOD_GW_PENALTY_2_0C
+    if global_warming_c > 1.5:
+        return FLOOD_GW_PENALTY_1_5C
+    return 0
+
+
+def _apply_lifespan_depreciation(initial_lifespan_years, raw_penalty, has_intervention_rescue):
+    """Apply penalty and optional 80% intervention rescue; return (adjusted_lifespan, lifespan_penalty)."""
+    lifespan_penalty = raw_penalty * INTERVENTION_RESCUE_FRACTION if has_intervention_rescue else raw_penalty
+    adjusted_lifespan = max(1, initial_lifespan_years - lifespan_penalty)
+    return adjusted_lifespan, round(lifespan_penalty, 2)
+
 
 def validate_json(*required_fields):
     """Decorator to validate required JSON fields."""
@@ -619,6 +651,10 @@ def predict_coastal():
         lat = float(data['lat'])
         lon = float(data['lon'])
         mangrove_width = float(data['mangrove_width'])
+        initial_lifespan_years = int(data.get('initial_lifespan_years', 30))
+        sea_level_rise = float(data.get('sea_level_rise', 0.0))
+        intervention = str(data.get('intervention', '')).strip()
+        # Optional: Cascading Network Failures (Business Interruptions)
         # Optional: Cascading Network Failures (Business Interruption)
         daily_revenue = float(data.get('daily_revenue', 0))
         expected_downtime_days = int(data.get('expected_downtime_days', 0))
@@ -626,6 +662,13 @@ def predict_coastal():
         # Log the request for debugging (remove in production)
         import sys
         print(f"[COASTAL REQUEST] lat={lat}, lon={lon}, mangrove_width={mangrove_width}", file=sys.stderr, flush=True)
+        
+        # Dynamic Asset Depreciation: climate penalty and intervention rescue
+        raw_penalty = _coastal_lifespan_penalty(sea_level_rise)
+        has_intervention_rescue = 'sea wall' in intervention.lower() or 'seawall' in intervention.lower()
+        adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
+            initial_lifespan_years, raw_penalty, has_intervention_rescue
+        )
         
         # Handle minimum effective width - model shows negligible effect below 10m
         if mangrove_width > 0 and mangrove_width < 10:
@@ -708,6 +751,9 @@ def predict_coastal():
                     'lat': lat,
                     'lon': lon,
                     'mangrove_width_m': mangrove_width,
+                    'initial_lifespan_years': initial_lifespan_years,
+                    'sea_level_rise_m': sea_level_rise,
+                    'intervention': intervention or None
                     'daily_revenue': daily_revenue,
                     'expected_downtime_days': expected_downtime_days
                 },
@@ -725,6 +771,10 @@ def predict_coastal():
                     'percentage_improvement': round(percentage_improvement, 2),
                     'recommendation': 'with_mangroves' if avoided_runup > 0 else 'baseline',
                     'avoided_business_interruption': interruption['avoided_business_interruption']
+                },
+                'asset_depreciation': {
+                    'adjusted_lifespan': adjusted_lifespan,
+                    'lifespan_penalty': lifespan_penalty
                 },
                 'economic_assumptions': {
                     'damage_cost_per_meter': DAMAGE_COST_PER_METER,
@@ -763,10 +813,23 @@ def predict_coastal_flood():
         lon = float(data['lon'])
         slr_projection = float(data['slr_projection'])
         include_surge = data.get('include_surge', False)
+        initial_lifespan_years = int(data.get('initial_lifespan_years', 30))
+        intervention_raw = (
+            (data.get('intervention_params') or {}).get('type') or
+            data.get('intervention') or ''
+        )
+        intervention_str = str(intervention_raw).strip() if intervention_raw else ''
         
         # Log the request for debugging
         import sys
         print(f"[COASTAL FLOOD REQUEST] lat={lat}, lon={lon}, slr_projection={slr_projection}, include_surge={include_surge}", file=sys.stderr, flush=True)
+        
+        # Dynamic Asset Depreciation: coastal penalty from sea level rise, rescue from Sea Wall
+        raw_penalty = _coastal_lifespan_penalty(slr_projection)
+        has_intervention_rescue = 'sea wall' in intervention_str.lower() or 'seawall' in intervention_str.lower()
+        adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
+            initial_lifespan_years, raw_penalty, has_intervention_rescue
+        )
         
         # Validate coordinates
         if not (-90 <= lat <= 90):
@@ -820,9 +883,15 @@ def predict_coastal_flood():
                 'slr_projection_m': slr_projection,
                 'include_surge': include_surge,
                 'surge_m': surge_m,
-                'total_water_level_m': total_water_level
+                'total_water_level_m': total_water_level,
+                'initial_lifespan_years': initial_lifespan_years,
+                'intervention': intervention_str or None
             },
-            'flood_risk': flood_risk
+            'flood_risk': flood_risk,
+            'asset_depreciation': {
+                'adjusted_lifespan': adjusted_lifespan,
+                'lifespan_penalty': lifespan_penalty
+            }
         }
         
         # Add spatial_analysis if available
@@ -1167,6 +1236,15 @@ def predict_flood():
         slope_pct = float(data.get('slope_pct', 2.0))
         building_value = float(data.get('building_value', 750000))  # Use frontend value or default
         num_buildings = int(data.get('num_buildings', 1))  # Default to 1 building
+        initial_lifespan_years = int(data.get('initial_lifespan_years', 30))
+        global_warming = float(data.get('global_warming', 0.0))
+        
+        # Dynamic Asset Depreciation: flood/agri penalty from global warming, rescue from Sponge City
+        raw_penalty = _flood_lifespan_penalty(global_warming)
+        has_intervention_rescue = 'sponge' in intervention_type or intervention_type in ('sponge_city', 'sponge city')
+        adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
+            initial_lifespan_years, raw_penalty, has_intervention_rescue
+        )
         # Optional: Cascading Network Failures (Business Interruption)
         daily_revenue = float(data.get('daily_revenue', 0))
         expected_downtime_days = int(data.get('expected_downtime_days', 0))
@@ -1208,6 +1286,8 @@ def predict_flood():
             'permeable_pavement': 0.40, # 40% reduction
             'bioswales': 0.25,         # 25% reduction
             'rain_gardens': 0.20,      # 20% reduction
+            'sponge_city': 0.35,       # 35% reduction (also triggers lifespan rescue)
+            'sponge city': 0.35,       # alias for frontend
             'none': 0.0                # No intervention
         }
         
@@ -1320,6 +1400,12 @@ def predict_flood():
                     'slope_pct': slope_pct,
                     'building_value': building_value,
                     'num_buildings': num_buildings,
+                    'initial_lifespan_years': initial_lifespan_years,
+                    'global_warming_c': global_warming
+                },
+                'asset_depreciation': {
+                    'adjusted_lifespan': adjusted_lifespan,
+                    'lifespan_penalty': lifespan_penalty
                     'daily_revenue': daily_revenue,
                     'expected_downtime_days': expected_downtime_days
                 },
