@@ -22,6 +22,13 @@ from physics_engine import simulate_maize_yield, calculate_yield
 from coastal_engine import analyze_flood_risk, analyze_urban_impact
 from flood_engine import analyze_flash_flood, calculate_rainfall_frequency, analyze_infrastructure_risk
 from financial_engine import calculate_roi_metrics, calculate_npv, calculate_payback_period
+from lifespan_depreciation import (
+    coastal_lifespan_penalty,
+    flood_lifespan_penalty,
+    apply_lifespan_depreciation,
+    coastal_has_intervention_rescue,
+    flood_has_intervention_rescue,
+)
 
 app = Flask(__name__)
 # Enable CORS for all origins (Lovable uses multiple domains)
@@ -97,38 +104,6 @@ FALLBACK_TERRAIN = {
     'elevation_m': 500.0,
     'soil_ph': 6.5
 }
-
-# --- Dynamic Asset Depreciation: lifespan penalty thresholds (adjustable) ---
-COASTAL_SLR_PENALTY_0_5M = 5   # years if sea_level_rise > 0.5 m
-COASTAL_SLR_PENALTY_1_0M = 12  # years if sea_level_rise > 1.0 m
-FLOOD_GW_PENALTY_1_5C = 4      # years if global_warming > 1.5 °C
-FLOOD_GW_PENALTY_2_0C = 10     # years if global_warming > 2.0 °C
-INTERVENTION_RESCUE_FRACTION = 0.2  # residual penalty after intervention (80% reduction)
-
-
-def _coastal_lifespan_penalty(sea_level_rise_m):
-    """Climate penalty (years) for coastal assets from sea level rise. Thresholds are configurable."""
-    if sea_level_rise_m > 1.0:
-        return COASTAL_SLR_PENALTY_1_0M
-    if sea_level_rise_m > 0.5:
-        return COASTAL_SLR_PENALTY_0_5M
-    return 0
-
-
-def _flood_lifespan_penalty(global_warming_c):
-    """Climate penalty (years) for flood/agri assets from global warming. Thresholds are configurable."""
-    if global_warming_c > 2.0:
-        return FLOOD_GW_PENALTY_2_0C
-    if global_warming_c > 1.5:
-        return FLOOD_GW_PENALTY_1_5C
-    return 0
-
-
-def _apply_lifespan_depreciation(initial_lifespan_years, raw_penalty, has_intervention_rescue):
-    """Apply penalty and optional 80% intervention rescue; return (adjusted_lifespan, lifespan_penalty)."""
-    lifespan_penalty = raw_penalty * INTERVENTION_RESCUE_FRACTION if has_intervention_rescue else raw_penalty
-    adjusted_lifespan = max(1, initial_lifespan_years - lifespan_penalty)
-    return adjusted_lifespan, round(lifespan_penalty, 2)
 
 
 def validate_json(*required_fields):
@@ -664,9 +639,9 @@ def predict_coastal():
         print(f"[COASTAL REQUEST] lat={lat}, lon={lon}, mangrove_width={mangrove_width}", file=sys.stderr, flush=True)
         
         # Dynamic Asset Depreciation: climate penalty and intervention rescue
-        raw_penalty = _coastal_lifespan_penalty(sea_level_rise)
-        has_intervention_rescue = 'sea wall' in intervention.lower() or 'seawall' in intervention.lower()
-        adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
+        raw_penalty = coastal_lifespan_penalty(sea_level_rise)
+        has_intervention_rescue = coastal_has_intervention_rescue(intervention)
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
             initial_lifespan_years, raw_penalty, has_intervention_rescue
         )
         
@@ -825,9 +800,9 @@ def predict_coastal_flood():
         print(f"[COASTAL FLOOD REQUEST] lat={lat}, lon={lon}, slr_projection={slr_projection}, include_surge={include_surge}", file=sys.stderr, flush=True)
         
         # Dynamic Asset Depreciation: coastal penalty from sea level rise, rescue from Sea Wall
-        raw_penalty = _coastal_lifespan_penalty(slr_projection)
-        has_intervention_rescue = 'sea wall' in intervention_str.lower() or 'seawall' in intervention_str.lower()
-        adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
+        raw_penalty = coastal_lifespan_penalty(slr_projection)
+        has_intervention_rescue = coastal_has_intervention_rescue(intervention_str)
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
             initial_lifespan_years, raw_penalty, has_intervention_rescue
         )
         
@@ -1240,9 +1215,9 @@ def predict_flood():
         global_warming = float(data.get('global_warming', 0.0))
         
         # Dynamic Asset Depreciation: flood/agri penalty from global warming, rescue from Sponge City
-        raw_penalty = _flood_lifespan_penalty(global_warming)
-        has_intervention_rescue = 'sponge' in intervention_type or intervention_type in ('sponge_city', 'sponge city')
-        adjusted_lifespan, lifespan_penalty = _apply_lifespan_depreciation(
+        raw_penalty = flood_lifespan_penalty(global_warming)
+        has_intervention_rescue = flood_has_intervention_rescue(intervention_type)
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
             initial_lifespan_years, raw_penalty, has_intervention_rescue
         )
         # Optional: Cascading Network Failures (Business Interruption)
