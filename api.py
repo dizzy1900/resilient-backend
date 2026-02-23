@@ -76,6 +76,7 @@ class CoastalRequest(BaseModel):
     scenario_year: int = Field(2050, ge=2024, le=2100)
     slr_projection: float = Field(0.0, description="Sea level rise in meters")
     mangrove_width: float = Field(0.0, description="Mangrove buffer width in meters")
+    initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
 
 
 class FloodRequest(BaseModel):
@@ -84,6 +85,8 @@ class FloodRequest(BaseModel):
     lon: float = Field(..., ge=-180, le=180)
     scenario_year: int = Field(2050, ge=2024, le=2100)
     rain_intensity: float = Field(0.0, description="Rainfall intensity increase percentage")
+    initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
+    global_warming: float = Field(0.0, description="Global warming in °C for lifespan penalty (e.g. 1.5, 2.0)")
 
 
 class PolygonRequest(BaseModel):
