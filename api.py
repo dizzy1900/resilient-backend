@@ -33,6 +33,13 @@ from datetime import datetime
 
 from physics_engine import calculate_yield
 from spatial_engine import process_polygon_request
+from lifespan_depreciation import (
+    coastal_lifespan_penalty,
+    flood_lifespan_penalty,
+    apply_lifespan_depreciation,
+    coastal_has_intervention_rescue,
+    flood_has_intervention_rescue,
+)
 
 
 CropType = Literal["maize", "cocoa"]
@@ -80,6 +87,7 @@ class CoastalRequest(BaseModel):
     slr_projection: float = Field(0.0, description="Sea level rise in meters")
     mangrove_width: float = Field(0.0, description="Mangrove buffer width in meters")
     initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
+    intervention: Optional[str] = Field("", description="e.g. 'Sea Wall' for 80% lifespan penalty reduction")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days (cascading network failures)")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
@@ -94,6 +102,7 @@ class FloodRequest(BaseModel):
     rain_intensity: float = Field(0.0, description="Rainfall intensity increase percentage")
     initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
     global_warming: float = Field(0.0, description="Global warming in °C for lifespan penalty (e.g. 1.5, 2.0)")
+    intervention_type: Optional[str] = Field("", description="e.g. 'sponge_city' for 80% lifespan penalty reduction")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days (cascading network failures)")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
@@ -267,7 +276,7 @@ def run_agriculture_simulation(req: AgricultureRequest) -> dict:
 
 @app.post("/simulate/coastal")
 def run_coastal_simulation(req: CoastalRequest) -> dict:
-    """Run coastal flood risk simulation."""
+    """Run coastal flood risk simulation. Includes dynamic asset depreciation from SLR and intervention."""
     try:
         cmd = [
             "python",
@@ -294,6 +303,16 @@ def run_coastal_simulation(req: CoastalRequest) -> dict:
             )
         
         output = json.loads(result.stdout)
+        # Dynamic Asset Depreciation: coastal penalty from sea level rise, rescue from e.g. Sea Wall
+        raw_penalty = coastal_lifespan_penalty(req.slr_projection)
+        has_rescue = coastal_has_intervention_rescue(req.intervention or "")
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
+            req.initial_lifespan_years, raw_penalty, has_rescue
+        )
+        output["asset_depreciation"] = {
+            "adjusted_lifespan": adjusted_lifespan,
+            "lifespan_penalty": lifespan_penalty,
+        }
         return output
         
     except Exception as e:
@@ -302,7 +321,7 @@ def run_coastal_simulation(req: CoastalRequest) -> dict:
 
 @app.post("/simulate/flood")
 def run_flood_simulation(req: FloodRequest) -> dict:
-    """Run flash flood risk simulation."""
+    """Run flash flood risk simulation. Includes dynamic asset depreciation from global warming and intervention."""
     try:
         cmd = [
             "python",
@@ -328,6 +347,16 @@ def run_flood_simulation(req: FloodRequest) -> dict:
             )
         
         output = json.loads(result.stdout)
+        # Dynamic Asset Depreciation: flood/agri penalty from global warming, rescue from e.g. Sponge City
+        raw_penalty = flood_lifespan_penalty(req.global_warming)
+        has_rescue = flood_has_intervention_rescue(req.intervention_type or "")
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
+            req.initial_lifespan_years, raw_penalty, has_rescue
+        )
+        output["asset_depreciation"] = {
+            "adjusted_lifespan": adjusted_lifespan,
+            "lifespan_penalty": lifespan_penalty,
+        }
         return output
         
     except Exception as e:
