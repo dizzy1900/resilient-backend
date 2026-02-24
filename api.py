@@ -172,8 +172,6 @@ class CoastalRequest(BaseModel):
     initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
     intervention: Optional[str] = Field("", description="e.g. 'Sea Wall' for 80% lifespan penalty reduction")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
-    expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days (cascading network failures)")
-    daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected infrastructure downtime days without intervention")
 
 
@@ -186,8 +184,6 @@ class FloodRequest(BaseModel):
     initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation (default 30)")
     global_warming: float = Field(0.0, description="Global warming in °C for lifespan penalty (e.g. 1.5, 2.0)")
     intervention_type: Optional[str] = Field("", description="e.g. 'sponge_city' for 80% lifespan penalty reduction")
-    daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
-    expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days (cascading network failures)")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected infrastructure downtime days without intervention")
 
@@ -269,12 +265,15 @@ class PredictCoastalRunupRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lon: float = Field(..., ge=-180, le=180)
     mangrove_width: float = Field(..., description="Mangrove buffer width in meters")
-    initial_lifespan_years: int = Field(30, ge=1, le=200)
+    initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation")
     sea_level_rise: float = Field(0.0, description="Sea level rise in meters")
     intervention: str = Field("", description="e.g. 'Sea Wall', 'Drainage Upgrade', 'Sponge City'")
     base_annual_opex: float = Field(25000.0, description="Base annual OPEX in USD for material degradation")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days")
+    # Optional intervention flags (frontend may send these instead of or in addition to intervention string)
+    green_roofs: Optional[bool] = Field(None, description="Green roofs intervention enabled")
+    drainage_upgrade: Optional[bool] = Field(None, description="Drainage upgrade intervention enabled")
 
 
 class PredictCoastalFloodRequest(BaseModel):
@@ -305,11 +304,14 @@ class PredictUrbanFloodRequest(BaseModel):
     slope_pct: float = Field(2.0, ge=0.1, le=10.0)
     building_value: float = Field(750000.0, description="Building value in USD")
     num_buildings: int = Field(1, ge=1)
-    initial_lifespan_years: int = Field(30, ge=1, le=200)
+    initial_lifespan_years: int = Field(30, ge=1, le=200, description="Asset initial lifespan for depreciation")
     global_warming: float = Field(0.0, description="Global warming in °C for lifespan/OPEX penalty")
     base_annual_opex: float = Field(25000.0, description="Base annual OPEX in USD for material degradation")
     daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
     expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days")
+    # Optional intervention flags (frontend may send these in addition to intervention_type)
+    green_roofs: Optional[bool] = Field(None, description="Green roofs intervention enabled")
+    drainage_upgrade: Optional[bool] = Field(None, description="Drainage upgrade intervention enabled")
 
 
 class StartBatchRequest(BaseModel):
@@ -1372,6 +1374,7 @@ def predict_coastal(req: PredictCoastalRunupRequest):
         return _legacy_error(500, "Coastal model file not found. Ensure coastal_surrogate.pkl exists.", "MODEL_NOT_FOUND")
 
     try:
+        print(f"DEBUG PAYLOAD: OPEX={req.base_annual_opex}, Lifespan={req.initial_lifespan_years}, GreenRoofs={req.green_roofs}", flush=True)
         lat = req.lat
         lon = req.lon
         mangrove_width = req.mangrove_width
@@ -1383,6 +1386,7 @@ def predict_coastal(req: PredictCoastalRunupRequest):
 
         print(f"[COASTAL REQUEST] lat={lat}, lon={lon}, mangrove_width={mangrove_width}", file=sys.stderr, flush=True)
 
+        # Math uses request variables: initial_lifespan_years, intervention (no hardcoded defaults)
         raw_penalty = coastal_lifespan_penalty(sea_level_rise)
         has_intervention_rescue = coastal_has_intervention_rescue(intervention)
         adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
@@ -1417,7 +1421,7 @@ def predict_coastal(req: PredictCoastalRunupRequest):
             has_intervention=has_intervention,
         )
 
-        # Material Degradation Curves: OPEX penalty from salinity/corrosion (sea level rise)
+        # Material Degradation Curves: adjusted_opex uses request base_annual_opex and intervention (no hardcoded defaults)
         base_annual_opex: float = float(req.base_annual_opex)
         if sea_level_rise > 1.0:
             opex_penalty_pct = 0.30
@@ -1762,6 +1766,7 @@ def predict_flood(req: PredictUrbanFloodRequest):
         return _legacy_error(500, "Flood model file not found. Ensure flood_surrogate.pkl exists.", "MODEL_NOT_FOUND")
 
     try:
+        print(f"DEBUG PAYLOAD: OPEX={req.base_annual_opex}, Lifespan={req.initial_lifespan_years}, GreenRoofs={req.green_roofs}", flush=True)
         rain_intensity = req.rain_intensity
         current_imperviousness = req.current_imperviousness
         intervention_type = req.intervention_type.lower()
@@ -1775,13 +1780,14 @@ def predict_flood(req: PredictUrbanFloodRequest):
 
         print(f"[FLOOD REQUEST] rain={rain_intensity}, impervious={current_imperviousness}, intervention={intervention_type}, slope={slope_pct}, building_value=${building_value}, num_buildings={num_buildings}", file=sys.stderr, flush=True)
 
+        # Math uses request variables: initial_lifespan_years, intervention_type (no hardcoded defaults)
         raw_penalty = flood_lifespan_penalty(global_warming)
         has_intervention_rescue = flood_has_intervention_rescue(intervention_type)
         adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
             initial_lifespan_years, raw_penalty, has_intervention_rescue
         )
 
-        # Material Degradation Curves: OPEX penalty from thermal expansion/waterlogging (global warming)
+        # Material Degradation Curves: adjusted_opex uses request base_annual_opex and intervention_type (no hardcoded defaults)
         base_annual_opex: float = float(req.base_annual_opex)
         if global_warming > 2.0:
             opex_penalty_pct = 0.25
