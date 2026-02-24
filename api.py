@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""FastAPI Simulation Service
+"""FastAPI Simulation Service — AdaptMetric Climate Resilience Engine
 
-This is a standalone API entrypoint (separate from the legacy Flask app in
-`main.py`). It exposes a minimal /simulate endpoint for yield projections.
+Full production API serving both the /simulate family (headless-runner driven)
+and the /predict family (in-process model inference).
 
 Run locally:
   uvicorn api:app --reload --port 8000
@@ -29,7 +29,7 @@ import numpy as np
 
 from io import BytesIO
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from physics_engine import calculate_yield
 from spatial_engine import process_polygon_request
@@ -40,6 +40,89 @@ from lifespan_depreciation import (
     coastal_has_intervention_rescue,
     flood_has_intervention_rescue,
 )
+
+import math
+import pickle
+import random
+import statistics
+import sys
+import threading
+
+import joblib
+from fastapi.responses import JSONResponse
+
+from gee_connector import (
+    get_weather_data, get_coastal_params, get_monthly_data,
+    analyze_spatial_viability, get_terrain_data,
+)
+from batch_processor import run_batch_job
+from coastal_engine import analyze_flood_risk, analyze_urban_impact
+from flood_engine import (
+    analyze_flash_flood, calculate_rainfall_frequency,
+    analyze_infrastructure_risk,
+)
+from financial_engine import calculate_roi_metrics, calculate_npv, calculate_payback_period
+
+# ---------------------------------------------------------------------------
+# In-process ML models (ported from Flask)
+# ---------------------------------------------------------------------------
+_AG_MODEL_PATH = "ag_surrogate.pkl"
+_COASTAL_MODEL_PATH = "coastal_surrogate.pkl"
+_FLOOD_MODEL_PATH = "flood_surrogate.pkl"
+_COFFEE_MODEL_PATH = "coffee_model.pkl"
+
+ag_pkl_model = None
+coastal_pkl_model = None
+flood_pkl_model = None
+coffee_pkl_model = None
+
+try:
+    with open(_AG_MODEL_PATH, "rb") as _f:
+        ag_pkl_model = pickle.load(_f)
+    print(f"Model loaded successfully from {_AG_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Model file '{_AG_MODEL_PATH}' not found. Run start.sh or download manually.")
+except Exception as _e:
+    print(f"Warning: Failed to load model: {_e}")
+
+try:
+    with open(_COASTAL_MODEL_PATH, "rb") as _f:
+        coastal_pkl_model = pickle.load(_f)
+    print(f"Coastal model loaded successfully from {_COASTAL_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Coastal model file '{_COASTAL_MODEL_PATH}' not found.")
+except Exception as _e:
+    print(f"Warning: Failed to load coastal model: {_e}")
+
+try:
+    with open(_FLOOD_MODEL_PATH, "rb") as _f:
+        flood_pkl_model = pickle.load(_f)
+    print(f"Flood model loaded successfully from {_FLOOD_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Flood model file '{_FLOOD_MODEL_PATH}' not found.")
+except Exception as _e:
+    print(f"Warning: Failed to load flood model: {_e}")
+
+try:
+    coffee_pkl_model = joblib.load(_COFFEE_MODEL_PATH)
+    print(f"Coffee model loaded successfully from {_COFFEE_MODEL_PATH}")
+except FileNotFoundError:
+    print(f"Warning: Coffee model file '{_COFFEE_MODEL_PATH}' not found.")
+except Exception as _e:
+    print(f"Warning: Failed to load coffee model: {_e}")
+
+SEED_TYPES = {"standard": 0, "resilient": 1}
+
+FALLBACK_WEATHER = {
+    "max_temp_celsius": 28.5,
+    "total_rain_mm": 520.0,
+    "period": "last_12_months",
+}
+
+FALLBACK_TERRAIN = {
+    "elevation_m": 500.0,
+    "soil_ph": 6.5,
+}
 
 
 CropType = Literal["maize", "cocoa"]
@@ -153,6 +236,104 @@ class CVaRRequest(BaseModel):
     mean_damage_pct: float = Field(0.02, description="Average annual damage as decimal (e.g. 0.02 for 2%)")
     volatility_pct: float = Field(0.05, description="Damage volatility as decimal (e.g. 0.05 for 5%)")
     num_simulations: int = Field(10_000, ge=100, le=1_000_000, description="Number of Monte Carlo trials")
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models for legacy /predict-* routes (ported from Flask)
+# ---------------------------------------------------------------------------
+
+PredictCropType = Literal["maize", "cocoa", "coffee"]
+
+
+class GetHazardRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+
+
+class PredictRequest(BaseModel):
+    """Crop yield prediction — accepts (lat, lon) for GEE lookup OR (temp, rain) for manual mode."""
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lon: Optional[float] = Field(None, ge=-180, le=180)
+    temp: Optional[float] = None
+    rain: Optional[float] = None
+    crop_type: str = "maize"
+    temp_increase: float = 0.0
+    rain_change: float = 0.0
+    elevation: Optional[float] = None
+    elevation_m: Optional[float] = None
+    soil_ph: Optional[float] = None
+    project_params: Optional[Dict[str, Any]] = None
+
+
+class PredictCoastalRunupRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    mangrove_width: float
+    initial_lifespan_years: int = 30
+    sea_level_rise: float = 0.0
+    intervention: str = ""
+    daily_revenue: float = 0.0
+    expected_downtime_days: int = 0
+
+
+class PredictCoastalFloodRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    slr_projection: float
+    include_surge: bool = False
+    initial_lifespan_years: int = 30
+    intervention: Optional[str] = ""
+    intervention_params: Optional[Dict[str, Any]] = None
+    infrastructure_params: Optional[Dict[str, Any]] = None
+    social_params: Optional[Dict[str, Any]] = None
+
+
+class PredictFlashFloodRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    rain_intensity_pct: float = Field(..., ge=0)
+    infrastructure_params: Optional[Dict[str, Any]] = None
+    intervention_params: Optional[Dict[str, Any]] = None
+    social_params: Optional[Dict[str, Any]] = None
+
+
+class PredictUrbanFloodRequest(BaseModel):
+    rain_intensity: float
+    current_imperviousness: float
+    intervention_type: str
+    slope_pct: float = 2.0
+    building_value: float = 750000.0
+    num_buildings: int = 1
+    initial_lifespan_years: int = 30
+    global_warming: float = 0.0
+    daily_revenue: float = 0.0
+    expected_downtime_days: int = 0
+
+
+class StartBatchRequest(BaseModel):
+    job_id: str
+
+
+class CalculateFinancialsRequest(BaseModel):
+    cash_flows: List[float] = Field(..., min_length=2)
+    discount_rate: float = Field(..., ge=0.0, le=1.0)
+
+
+class PredictHealthRequest(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    workforce_size: int = Field(..., gt=0)
+    daily_wage: float = Field(..., gt=0)
+
+
+class PredictPortfolioLocation(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+
+
+class PredictPortfolioRequest(BaseModel):
+    locations: List[PredictPortfolioLocation] = Field(..., min_length=1)
+    crop_type: str = "maize"
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -819,6 +1000,1144 @@ def cvar_simulation(req: CVaRRequest) -> dict:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# ---------------------------------------------------------------------------
+# Legacy /predict-* routes (ported from Flask main.py)
+# ---------------------------------------------------------------------------
+
+
+def _legacy_error(status_code: int, message: str, code: str) -> JSONResponse:
+    """Return a JSON error response matching the legacy Flask format."""
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "error", "message": message, "code": code},
+    )
+
+
+@app.get("/")
+def index():
+    return {"status": "active"}
+
+
+@app.post("/get-hazard")
+def get_hazard(req: GetHazardRequest):
+    """Get climate hazard data for a location using GEE."""
+    try:
+        lat = req.lat
+        lon = req.lon
+
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)
+
+        try:
+            weather_data = get_weather_data(
+                lat=lat, lon=lon,
+                start_date=start_date.strftime("%Y-%m-%d"),
+                end_date=end_date.strftime("%Y-%m-%d"),
+            )
+            hazard_metrics = {
+                "max_temp_celsius": weather_data["max_temp_celsius"],
+                "total_rain_mm": weather_data["total_precip_mm"],
+                "period": "growing_season_peak",
+            }
+        except Exception as gee_error:
+            print(f"GEE error, using fallback: {gee_error}", file=sys.stderr, flush=True)
+            hazard_metrics = FALLBACK_WEATHER.copy()
+
+        try:
+            terrain_data = get_terrain_data(lat=lat, lon=lon)
+            hazard_metrics["elevation_m"] = terrain_data["elevation_m"]
+            hazard_metrics["soil_ph"] = terrain_data["soil_ph"]
+        except Exception as terrain_error:
+            print(f"Terrain data error, using fallback: {terrain_error}", file=sys.stderr, flush=True)
+            hazard_metrics["elevation_m"] = FALLBACK_TERRAIN["elevation_m"]
+            hazard_metrics["soil_ph"] = FALLBACK_TERRAIN["soil_ph"]
+
+        return {
+            "status": "success",
+            "data": {
+                "location": {"lat": lat, "lon": lon},
+                "hazard_metrics": hazard_metrics,
+            },
+        }
+
+    except ValueError:
+        return _legacy_error(400, "Invalid numeric values for lat/lon", "INVALID_NUMERIC_VALUE")
+
+
+@app.post("/predict")
+def predict(req: PredictRequest):
+    """Predict crop yield and calculate avoided loss.
+
+    Supports two modes:
+    - Mode A (Auto-Lookup): Provide lat/lon to fetch weather data from GEE
+    - Mode B (Manual): Provide temp/rain directly
+    """
+    try:
+        crop_type = req.crop_type.lower()
+
+        if crop_type not in ("maize", "cocoa", "coffee"):
+            return _legacy_error(
+                400,
+                f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa', 'coffee'",
+                "INVALID_CROP_TYPE",
+            )
+
+        if crop_type == "coffee" and coffee_pkl_model is None:
+            return _legacy_error(
+                500,
+                "Coffee model file not found. Ensure coffee_model.pkl exists.",
+                "MODEL_NOT_FOUND",
+            )
+
+        monthly_data = None
+        has_location = False
+        location_lat = 0.0
+        location_lon = 0.0
+
+        # Mode A: Auto-Lookup using lat/lon
+        if req.lat is not None and req.lon is not None:
+            lat = float(req.lat)
+            lon = float(req.lon)
+
+            try:
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=365)
+
+                weather_data = get_weather_data(
+                    lat=lat, lon=lon,
+                    start_date=start_date.strftime("%Y-%m-%d"),
+                    end_date=end_date.strftime("%Y-%m-%d"),
+                )
+
+                base_temp = weather_data["max_temp_celsius"]
+                base_rain = weather_data["total_precip_mm"]
+                data_source = "gee_auto_lookup"
+
+                try:
+                    monthly_data = get_monthly_data(lat, lon)
+                except Exception as monthly_error:
+                    print(f"Monthly data error: {monthly_error}", file=sys.stderr, flush=True)
+
+                has_location = True
+                location_lat = lat
+                location_lon = lon
+
+            except Exception as gee_error:
+                print(f"GEE error, using fallback: {gee_error}", file=sys.stderr, flush=True)
+                base_temp = FALLBACK_WEATHER["max_temp_celsius"]
+                base_rain = FALLBACK_WEATHER["total_rain_mm"]
+                data_source = "fallback"
+
+        # Mode B: Manual fallback using temp/rain
+        elif req.temp is not None and req.rain is not None:
+            base_temp = float(req.temp)
+            base_rain = float(req.rain)
+            data_source = "manual"
+
+        else:
+            return _legacy_error(
+                400,
+                "Missing required fields: provide either (lat, lon) or (temp, rain)",
+                "MISSING_FIELDS",
+            )
+
+        temp_increase = float(req.temp_increase)
+        rain_change = float(req.rain_change)
+
+        final_simulated_temp = base_temp + temp_increase
+        rain_modifier = 1.0 + (rain_change / 100.0)
+        final_simulated_rain = max(0.0, base_rain * rain_modifier)
+
+        # === COFFEE MODEL PREDICTION ===
+        if crop_type == "coffee":
+            elevation = float(
+                req.elevation if req.elevation is not None
+                else (req.elevation_m if req.elevation_m is not None else 1200.0)
+            )
+            soil_ph = float(req.soil_ph if req.soil_ph is not None else 6.0)
+
+            if has_location and req.elevation is None and req.elevation_m is None:
+                try:
+                    terrain_data = get_terrain_data(lat=location_lat, lon=location_lon)
+                    elevation = terrain_data["elevation_m"] if terrain_data["elevation_m"] else 1200.0
+                    soil_ph = terrain_data["soil_ph"] if terrain_data["soil_ph"] else 6.0
+                except Exception as terrain_error:
+                    print(f"Terrain fetch error for coffee prediction: {terrain_error}", file=sys.stderr, flush=True)
+
+            baseline_temp_c = base_temp
+            temp_anomaly_c = temp_increase
+            rainfall_mm = base_rain
+            rain_anomaly_mm = (rain_change / 100.0) * base_rain
+
+            features = np.array([[baseline_temp_c, temp_anomaly_c, rainfall_mm, rain_anomaly_mm, elevation, soil_ph]])
+            yield_impact = float(coffee_pkl_model.predict(features)[0])
+
+            return {
+                "status": "success",
+                "data": {
+                    "input_conditions": {
+                        "baseline_temp_c": round(baseline_temp_c, 2),
+                        "temp_anomaly_c": round(temp_anomaly_c, 2),
+                        "rainfall_mm": round(rainfall_mm, 2),
+                        "rain_anomaly_mm": round(rain_anomaly_mm, 2),
+                        "elevation_m": round(elevation, 2),
+                        "soil_ph": round(soil_ph, 2),
+                        "data_source": data_source,
+                        "crop_type": crop_type,
+                    },
+                    "prediction": {
+                        "yield_impact_pct": round(yield_impact, 4),
+                        "yield_impact_category": (
+                            "optimal" if yield_impact >= 0.8 else
+                            "good" if yield_impact >= 0.6 else
+                            "moderate" if yield_impact >= 0.4 else
+                            "poor" if yield_impact >= 0.2 else
+                            "critical"
+                        ),
+                    },
+                    "interpretation": {
+                        "description": f"Under current conditions, expected yield is {yield_impact * 100:.1f}% of maximum potential.",
+                        "risk_factors": [],
+                    },
+                },
+            }
+
+        # === MAIZE/COCOA PREDICTION ===
+        standard_yield = calculate_yield(
+            temp=base_temp, rain=base_rain,
+            seed_type=SEED_TYPES["standard"],
+            crop_type=crop_type,
+            temp_delta=temp_increase,
+            rain_pct_change=rain_change,
+        )
+
+        resilient_yield = calculate_yield(
+            temp=base_temp, rain=base_rain,
+            seed_type=SEED_TYPES["resilient"],
+            crop_type=crop_type,
+            temp_delta=temp_increase,
+            rain_pct_change=rain_change,
+        )
+
+        avoided_loss = resilient_yield - standard_yield
+        percentage_improvement = (avoided_loss / standard_yield) * 100 if standard_yield > 0 else 0.0
+
+        # Financial ROI Analysis
+        project_params = req.project_params or {}
+        capex = float(project_params.get("capex", 2000))
+        opex = float(project_params.get("opex", 425))
+        yield_benefit_pct = float(project_params.get("yield_benefit_pct", 30.0))
+        price_per_ton = float(project_params.get("price_per_ton", 4800))
+        analysis_years = 10
+        discount_rate = 0.10
+
+        predicted_yield_tons = standard_yield
+        incremental_cash_flows: list[float] = []
+        cumulative_cash_flow_array: list[float] = []
+        cumulative = 0.0
+
+        for year in range(analysis_years + 1):
+            revenue_bau = predicted_yield_tons * price_per_ton
+            yield_project = resilient_yield * (1 + (yield_benefit_pct / 100))
+            revenue_project = yield_project * price_per_ton
+
+            cost_project = capex if year == 0 else opex
+            net_project = revenue_project - cost_project
+            incremental = -capex if year == 0 else (net_project - revenue_bau)
+
+            incremental_cash_flows.append(round(incremental, 2))
+            cumulative += incremental
+            cumulative_cash_flow_array.append(round(cumulative, 2))
+
+        npv = calculate_npv(incremental_cash_flows, discount_rate)
+        payback_years = calculate_payback_period(incremental_cash_flows)
+
+        roi_analysis = {
+            "npv": round(npv, 2),
+            "payback_years": round(payback_years, 2) if payback_years is not None else None,
+            "cumulative_cash_flow": cumulative_cash_flow_array,
+            "incremental_cash_flows": incremental_cash_flows,
+            "assumptions": {
+                "capex": capex,
+                "opex": opex,
+                "yield_benefit_pct": yield_benefit_pct,
+                "price_per_ton": price_per_ton,
+                "discount_rate_pct": discount_rate * 100,
+                "analysis_years": analysis_years,
+            },
+        }
+
+        # Spatial analysis (only when location and climate perturbation are present)
+        spatial_analysis = None
+        if has_location and temp_increase != 0.0:
+            try:
+                print(f"[SPATIAL] Running spatial analysis for lat={location_lat}, lon={location_lon}, temp_increase={temp_increase}", file=sys.stderr, flush=True)
+                spatial_analysis = analyze_spatial_viability(location_lat, location_lon, temp_increase)
+                print(f"[SPATIAL] Complete: {spatial_analysis}", file=sys.stderr, flush=True)
+            except Exception as spatial_error:
+                print(f"Spatial analysis error: {spatial_error}", file=sys.stderr, flush=True)
+
+        # Chart data from monthly GEE observations
+        chart_data = None
+        if monthly_data is not None:
+            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            rainfall_baseline = monthly_data["rainfall_monthly_mm"]
+            soil_moisture_baseline = monthly_data["soil_moisture_monthly"]
+
+            rainfall_projected = []
+            for i, baseline_value in enumerate(rainfall_baseline):
+                projected_value = baseline_value * (1 + rain_change / 100)
+                if rain_change < 0 and i in (5, 6, 7):
+                    additional_penalty = abs(rain_change) / 100
+                    projected_value = projected_value * (1 - additional_penalty)
+                rainfall_projected.append(round(projected_value, 2))
+
+            chart_data = {
+                "months": months,
+                "rainfall_baseline": [round(v, 2) for v in rainfall_baseline],
+                "rainfall_projected": rainfall_projected,
+                "soil_moisture_baseline": [round(v, 4) for v in soil_moisture_baseline],
+            }
+
+        response_data: Dict[str, Any] = {
+            "input_conditions": {
+                "max_temp_celsius": base_temp,
+                "total_rain_mm": base_rain,
+                "data_source": data_source,
+                "crop_type": crop_type,
+            },
+            "predictions": {
+                "standard_seed": {
+                    "type_code": SEED_TYPES["standard"],
+                    "predicted_yield": round(standard_yield, 2),
+                },
+                "resilient_seed": {
+                    "type_code": SEED_TYPES["resilient"],
+                    "predicted_yield": round(resilient_yield, 2),
+                },
+            },
+            "analysis": {
+                "avoided_loss": round(avoided_loss, 2),
+                "percentage_improvement": round(percentage_improvement, 2),
+                "recommendation": "resilient" if avoided_loss > 0 else "standard",
+            },
+            "simulation_debug": {
+                "raw_temp": round(base_temp, 2),
+                "perturbation_added": round(temp_increase, 2),
+                "final_simulated_temp": round(final_simulated_temp, 2),
+                "raw_rain": round(base_rain, 2),
+                "rain_modifier": round(rain_change, 2),
+                "final_simulated_rain": round(final_simulated_rain, 2),
+            },
+        }
+
+        if chart_data is not None:
+            response_data["chart_data"] = chart_data
+        if spatial_analysis is not None:
+            response_data["spatial_analysis"] = spatial_analysis
+        if roi_analysis is not None:
+            response_data["roi_analysis"] = roi_analysis
+
+        return {"status": "success", "data": response_data}
+
+    except ValueError:
+        return _legacy_error(400, "Invalid numeric values for temp/rain", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        return _legacy_error(500, f"Prediction failed: {str(e)}", "PREDICTION_ERROR")
+
+
+@app.post("/predict-coastal")
+def predict_coastal(req: PredictCoastalRunupRequest):
+    """Predict coastal runup elevation with and without mangrove protection."""
+    if coastal_pkl_model is None:
+        return _legacy_error(500, "Coastal model file not found. Ensure coastal_surrogate.pkl exists.", "MODEL_NOT_FOUND")
+
+    try:
+        lat = req.lat
+        lon = req.lon
+        mangrove_width = req.mangrove_width
+        initial_lifespan_years = req.initial_lifespan_years
+        sea_level_rise = req.sea_level_rise
+        intervention = req.intervention.strip()
+        daily_revenue = req.daily_revenue
+        expected_downtime_days = req.expected_downtime_days
+
+        print(f"[COASTAL REQUEST] lat={lat}, lon={lon}, mangrove_width={mangrove_width}", file=sys.stderr, flush=True)
+
+        raw_penalty = coastal_lifespan_penalty(sea_level_rise)
+        has_intervention_rescue = coastal_has_intervention_rescue(intervention)
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
+            initial_lifespan_years, raw_penalty, has_intervention_rescue
+        )
+
+        if 0 < mangrove_width < 10:
+            print(f"[WARNING] Mangrove width {mangrove_width}m is below minimum effective width. Using 10m minimum.", file=sys.stderr, flush=True)
+            mangrove_width = 10
+
+        coastal_data = get_coastal_params(lat, lon)
+        slope = coastal_data["slope_pct"]
+        wave_height = coastal_data["max_wave_height"]
+
+        scenario_a_df = pd.DataFrame({"wave_height": [wave_height], "slope": [slope], "mangrove_width_m": [0.0]})
+        scenario_b_df = pd.DataFrame({"wave_height": [wave_height], "slope": [slope], "mangrove_width_m": [mangrove_width]})
+
+        runup_a = float(coastal_pkl_model.predict(scenario_a_df)[0])
+        runup_b = float(coastal_pkl_model.predict(scenario_b_df)[0])
+
+        avoided_runup = runup_a - runup_b
+        DAMAGE_COST_PER_METER = 10000
+        NUM_PROPERTIES = 100
+        avoided_damage_usd = avoided_runup * DAMAGE_COST_PER_METER * NUM_PROPERTIES
+        percentage_improvement = (avoided_runup / runup_a * 100) if runup_a > 0 else 0
+
+        from infrastructure_engine import calculate_avoided_business_interruption
+        has_intervention = mangrove_width > 0
+        interruption = calculate_avoided_business_interruption(
+            daily_revenue=daily_revenue,
+            expected_downtime_days=expected_downtime_days,
+            has_intervention=has_intervention,
+        )
+
+        return {
+            "status": "success",
+            "data": {
+                "input_conditions": {
+                    "lat": lat,
+                    "lon": lon,
+                    "mangrove_width_m": mangrove_width,
+                    "initial_lifespan_years": initial_lifespan_years,
+                    "sea_level_rise_m": sea_level_rise,
+                    "intervention": intervention or None,
+                    "daily_revenue": daily_revenue,
+                    "expected_downtime_days": expected_downtime_days,
+                },
+                "coastal_params": {
+                    "detected_slope_pct": round(slope, 2),
+                    "storm_wave_height": round(wave_height, 2),
+                },
+                "predictions": {
+                    "baseline_runup": round(runup_a, 4),
+                    "protected_runup": round(runup_b, 4),
+                },
+                "analysis": {
+                    "avoided_loss": round(avoided_damage_usd, 2),
+                    "avoided_runup_m": round(avoided_runup, 4),
+                    "percentage_improvement": round(percentage_improvement, 2),
+                    "recommendation": "with_mangroves" if avoided_runup > 0 else "baseline",
+                    "avoided_business_interruption": interruption["avoided_business_interruption"],
+                },
+                "asset_depreciation": {
+                    "adjusted_lifespan": adjusted_lifespan,
+                    "lifespan_penalty": lifespan_penalty,
+                },
+                "economic_assumptions": {
+                    "damage_cost_per_meter": DAMAGE_COST_PER_METER,
+                    "num_properties": NUM_PROPERTIES,
+                    "total_value_basis": "USD per meter of flood reduction \u00d7 properties affected",
+                },
+                "slope": round(slope / 100, 4),
+                "storm_wave": round(wave_height, 2),
+                "avoided_loss": round(avoided_damage_usd, 2),
+                "avoided_business_interruption": interruption["avoided_business_interruption"],
+            },
+        }
+
+    except ValueError:
+        return _legacy_error(400, "Invalid numeric values for lat/lon/mangrove_width", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        return _legacy_error(500, f"Prediction failed: {str(e)}", "PREDICTION_ERROR")
+
+
+@app.post("/predict-coastal-flood")
+def predict_coastal_flood(req: PredictCoastalFloodRequest):
+    """Predict coastal flood risk based on sea level rise and storm surge."""
+    try:
+        lat = req.lat
+        lon = req.lon
+        slr_projection = req.slr_projection
+        include_surge = req.include_surge
+        initial_lifespan_years = req.initial_lifespan_years
+
+        intervention_raw = (
+            ((req.intervention_params or {}).get("type"))
+            or req.intervention
+            or ""
+        )
+        intervention_str = str(intervention_raw).strip() if intervention_raw else ""
+
+        print(f"[COASTAL FLOOD REQUEST] lat={lat}, lon={lon}, slr_projection={slr_projection}, include_surge={include_surge}", file=sys.stderr, flush=True)
+
+        raw_penalty = coastal_lifespan_penalty(slr_projection)
+        has_intervention_rescue = coastal_has_intervention_rescue(intervention_str)
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
+            initial_lifespan_years, raw_penalty, has_intervention_rescue
+        )
+
+        if slr_projection < 0:
+            return _legacy_error(400, "Sea level rise projection must be non-negative", "INVALID_SLR_PROJECTION")
+
+        surge_m = 2.5 if include_surge else 0.0
+        total_water_level = slr_projection + surge_m
+
+        flood_risk = analyze_flood_risk(lat, lon, slr_projection, surge_m)
+
+        spatial_analysis = None
+        try:
+            print(f"[SPATIAL] Running urban impact analysis for lat={lat}, lon={lon}, water_level={total_water_level}m", file=sys.stderr, flush=True)
+            spatial_analysis = analyze_urban_impact(lat, lon, total_water_level)
+            print(f"[SPATIAL] Complete: {spatial_analysis}", file=sys.stderr, flush=True)
+        except Exception as spatial_error:
+            print(f"Spatial analysis error: {spatial_error}", file=sys.stderr, flush=True)
+
+        response_data: Dict[str, Any] = {
+            "input_conditions": {
+                "lat": lat,
+                "lon": lon,
+                "slr_projection_m": slr_projection,
+                "include_surge": include_surge,
+                "surge_m": surge_m,
+                "total_water_level_m": total_water_level,
+                "initial_lifespan_years": initial_lifespan_years,
+                "intervention": intervention_str or None,
+            },
+            "flood_risk": flood_risk,
+            "asset_depreciation": {
+                "adjusted_lifespan": adjusted_lifespan,
+                "lifespan_penalty": lifespan_penalty,
+            },
+        }
+
+        if spatial_analysis is not None:
+            response_data["spatial_analysis"] = spatial_analysis
+
+        # Infrastructure ROI Analysis (optional)
+        infrastructure_roi = None
+        if req.infrastructure_params and req.intervention_params:
+            try:
+                from infrastructure_engine import calculate_infrastructure_roi
+
+                infra_params = req.infrastructure_params
+                intervention_params = req.intervention_params
+
+                asset_value = float(infra_params.get("asset_value", 0))
+                daily_revenue = float(infra_params.get("daily_revenue", 0))
+                capex = float(intervention_params.get("capex", 0))
+                opex = float(intervention_params.get("opex", 0))
+                intervention_type = intervention_params.get("type", "sea_wall")
+                flood_depth = flood_risk.get("flood_depth_m", 0.0)
+
+                if asset_value > 0 and flood_depth > 0:
+                    print(f"[INFRASTRUCTURE ROI] Calculating for flood_depth={flood_depth}m, asset_value=${asset_value}, intervention={intervention_type}", file=sys.stderr, flush=True)
+                    infrastructure_roi = calculate_infrastructure_roi(
+                        flood_depth_m=flood_depth,
+                        asset_value=asset_value,
+                        daily_revenue=daily_revenue,
+                        project_capex=capex,
+                        project_opex=opex,
+                        intervention_type=intervention_type,
+                        analysis_years=20,
+                        discount_rate=0.10,
+                        wall_height_m=intervention_params.get("wall_height_m", 2.0),
+                        drainage_reduction_m=intervention_params.get("drainage_reduction_m", 0.3),
+                    )
+                    print(f"[INFRASTRUCTURE ROI] Complete: NPV=${infrastructure_roi['financial_analysis']['npv']:,.0f}, BCR={infrastructure_roi['financial_analysis']['bcr']:.2f}", file=sys.stderr, flush=True)
+            except Exception as roi_error:
+                print(f"Infrastructure ROI error: {roi_error}", file=sys.stderr, flush=True)
+
+        if infrastructure_roi is not None:
+            response_data["infrastructure_roi"] = infrastructure_roi
+
+        # Social Impact Analysis (optional)
+        impact_metrics = None
+        if req.social_params or infrastructure_roi is not None:
+            try:
+                from social_impact_engine import analyze_beneficiaries, calculate_nature_value, calculate_social_metrics
+
+                buffer_km = 5.0
+                beneficiaries = analyze_beneficiaries(lat, lon, buffer_km, flood_mask=None)
+
+                nature_value = None
+                if req.social_params:
+                    social_params = req.social_params
+                    s_intervention_type = social_params.get("intervention_type", "")
+                    area_hectares = float(social_params.get("area_hectares", 0))
+                    if area_hectares > 0:
+                        nature_value = calculate_nature_value(s_intervention_type, area_hectares)
+
+                social_metrics = None
+                if infrastructure_roi is not None:
+                    intervention_cost = infrastructure_roi["financial_analysis"]["project_capex"]
+                    social_metrics = calculate_social_metrics(
+                        people_at_risk=beneficiaries["people_at_risk"],
+                        households_at_risk=beneficiaries["households_at_risk"],
+                        intervention_cost=intervention_cost,
+                        nature_value=nature_value,
+                    )
+
+                impact_metrics: Dict[str, Any] = {"beneficiaries": beneficiaries}
+                if nature_value is not None:
+                    impact_metrics["nature_value"] = nature_value
+                if social_metrics is not None:
+                    impact_metrics["social_metrics"] = social_metrics
+
+                print(f"[SOCIAL IMPACT] Beneficiaries: {beneficiaries['people_at_risk']} people, {beneficiaries['households_at_risk']} households", file=sys.stderr, flush=True)
+            except Exception as social_error:
+                print(f"Social impact analysis error: {social_error}", file=sys.stderr, flush=True)
+
+        if impact_metrics is not None:
+            response_data["impact_metrics"] = impact_metrics
+
+        return {"status": "success", "data": response_data}
+
+    except ValueError:
+        return _legacy_error(400, "Invalid numeric values for lat/lon/slr_projection", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        return _legacy_error(500, f"Flood risk analysis failed: {str(e)}", "FLOOD_RISK_ERROR")
+
+
+@app.post("/predict-flash-flood")
+def predict_flash_flood(req: PredictFlashFloodRequest):
+    """Predict flash flood risk using Topographic Wetness Index (TWI) model."""
+    try:
+        lat = req.lat
+        lon = req.lon
+        rain_intensity_pct = req.rain_intensity_pct
+
+        print(f"[FLASH FLOOD REQUEST] lat={lat}, lon={lon}, rain_intensity_pct={rain_intensity_pct}", file=sys.stderr, flush=True)
+
+        flash_flood_analysis = analyze_flash_flood(lat, lon, rain_intensity_pct)
+        rainfall_frequency = calculate_rainfall_frequency(rain_intensity_pct)
+
+        spatial_analysis = None
+        try:
+            print(f"[SPATIAL] Running infrastructure risk analysis for lat={lat}, lon={lon}, rain_intensity={rain_intensity_pct}%", file=sys.stderr, flush=True)
+            spatial_analysis = analyze_infrastructure_risk(lat, lon, rain_intensity_pct)
+            print(f"[SPATIAL] Complete: {spatial_analysis}", file=sys.stderr, flush=True)
+        except Exception as spatial_error:
+            print(f"Infrastructure risk analysis error: {spatial_error}", file=sys.stderr, flush=True)
+
+        response_data: Dict[str, Any] = {
+            "input_conditions": {
+                "lat": lat,
+                "lon": lon,
+                "rain_intensity_increase_pct": rain_intensity_pct,
+            },
+            "flash_flood_analysis": flash_flood_analysis,
+            "analytics": rainfall_frequency,
+        }
+
+        if spatial_analysis is not None:
+            response_data["spatial_analysis"] = spatial_analysis
+
+        # Infrastructure ROI Analysis (optional)
+        infrastructure_roi = None
+        if req.infrastructure_params and req.intervention_params:
+            try:
+                from infrastructure_engine import calculate_infrastructure_roi
+
+                infra_params = req.infrastructure_params
+                intervention_params = req.intervention_params
+
+                asset_value = float(infra_params.get("asset_value", 0))
+                daily_revenue = float(infra_params.get("daily_revenue", 0))
+                capex = float(intervention_params.get("capex", 0))
+                opex = float(intervention_params.get("opex", 0))
+                intervention_type = intervention_params.get("type", "drainage")
+
+                baseline_area = flash_flood_analysis.get("baseline_flood_area_km2", 0.0)
+                estimated_flood_depth = 0.5 if baseline_area > 0 else 0.0
+
+                if asset_value > 0 and estimated_flood_depth > 0:
+                    print(f"[INFRASTRUCTURE ROI] Calculating for estimated_depth={estimated_flood_depth}m, asset_value=${asset_value}, intervention={intervention_type}", file=sys.stderr, flush=True)
+                    infrastructure_roi = calculate_infrastructure_roi(
+                        flood_depth_m=estimated_flood_depth,
+                        asset_value=asset_value,
+                        daily_revenue=daily_revenue,
+                        project_capex=capex,
+                        project_opex=opex,
+                        intervention_type=intervention_type,
+                        analysis_years=20,
+                        discount_rate=0.10,
+                        wall_height_m=intervention_params.get("wall_height_m", 2.0),
+                        drainage_reduction_m=intervention_params.get("drainage_reduction_m", 0.3),
+                    )
+                    print(f"[INFRASTRUCTURE ROI] Complete: NPV=${infrastructure_roi['financial_analysis']['npv']:,.0f}, BCR={infrastructure_roi['financial_analysis']['bcr']:.2f}", file=sys.stderr, flush=True)
+            except Exception as roi_error:
+                print(f"Infrastructure ROI error: {roi_error}", file=sys.stderr, flush=True)
+
+        if infrastructure_roi is not None:
+            response_data["infrastructure_roi"] = infrastructure_roi
+
+        # Social Impact Analysis (optional)
+        impact_metrics = None
+        if req.social_params or infrastructure_roi is not None:
+            try:
+                from social_impact_engine import analyze_beneficiaries, calculate_nature_value, calculate_social_metrics
+
+                buffer_km = 50.0
+                beneficiaries = analyze_beneficiaries(lat, lon, buffer_km, flood_mask=None)
+
+                nature_value = None
+                if req.social_params:
+                    social_params = req.social_params
+                    s_intervention_type = social_params.get("intervention_type", "")
+                    area_hectares = float(social_params.get("area_hectares", 0))
+                    if area_hectares > 0:
+                        nature_value = calculate_nature_value(s_intervention_type, area_hectares)
+
+                social_metrics = None
+                if infrastructure_roi is not None:
+                    intervention_cost = infrastructure_roi["financial_analysis"]["project_capex"]
+                    social_metrics = calculate_social_metrics(
+                        people_at_risk=beneficiaries["people_at_risk"],
+                        households_at_risk=beneficiaries["households_at_risk"],
+                        intervention_cost=intervention_cost,
+                        nature_value=nature_value,
+                    )
+
+                impact_metrics: Dict[str, Any] = {"beneficiaries": beneficiaries}
+                if nature_value is not None:
+                    impact_metrics["nature_value"] = nature_value
+                if social_metrics is not None:
+                    impact_metrics["social_metrics"] = social_metrics
+
+                print(f"[SOCIAL IMPACT] Beneficiaries: {beneficiaries['people_at_risk']} people, {beneficiaries['households_at_risk']} households", file=sys.stderr, flush=True)
+            except Exception as social_error:
+                print(f"Social impact analysis error: {social_error}", file=sys.stderr, flush=True)
+
+        if impact_metrics is not None:
+            response_data["impact_metrics"] = impact_metrics
+
+        return {"status": "success", "data": response_data}
+
+    except ValueError:
+        return _legacy_error(400, "Invalid numeric values for lat/lon/rain_intensity_pct", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        return _legacy_error(500, f"Flash flood analysis failed: {str(e)}", "FLASH_FLOOD_ERROR")
+
+
+@app.post("/predict-flood")
+def predict_flood(req: PredictUrbanFloodRequest):
+    """Predict urban flood depth with and without green infrastructure intervention."""
+    if flood_pkl_model is None:
+        return _legacy_error(500, "Flood model file not found. Ensure flood_surrogate.pkl exists.", "MODEL_NOT_FOUND")
+
+    try:
+        rain_intensity = req.rain_intensity
+        current_imperviousness = req.current_imperviousness
+        intervention_type = req.intervention_type.lower()
+        slope_pct = req.slope_pct
+        building_value = req.building_value
+        num_buildings = req.num_buildings
+        initial_lifespan_years = req.initial_lifespan_years
+        global_warming = req.global_warming
+        daily_revenue = req.daily_revenue
+        expected_downtime_days = req.expected_downtime_days
+
+        print(f"[FLOOD REQUEST] rain={rain_intensity}, impervious={current_imperviousness}, intervention={intervention_type}, slope={slope_pct}, building_value=${building_value}, num_buildings={num_buildings}", file=sys.stderr, flush=True)
+
+        raw_penalty = flood_lifespan_penalty(global_warming)
+        has_intervention_rescue = flood_has_intervention_rescue(intervention_type)
+        adjusted_lifespan, lifespan_penalty = apply_lifespan_depreciation(
+            initial_lifespan_years, raw_penalty, has_intervention_rescue
+        )
+
+        if not (10 <= rain_intensity <= 150):
+            return _legacy_error(400, "Rain intensity must be between 10 and 150 mm/hr", "INVALID_RAIN_INTENSITY")
+        if not (0.0 <= current_imperviousness <= 1.0):
+            return _legacy_error(400, "Current imperviousness must be between 0.0 and 1.0", "INVALID_IMPERVIOUSNESS")
+        if not (0.1 <= slope_pct <= 10.0):
+            return _legacy_error(400, "Slope must be between 0.1 and 10.0 percent", "INVALID_SLOPE")
+
+        INTERVENTION_FACTORS = {
+            "green_roof": 0.30,
+            "permeable_pavement": 0.40,
+            "bioswales": 0.25,
+            "rain_gardens": 0.20,
+            "sponge_city": 0.35,
+            "sponge city": 0.35,
+            "none": 0.0,
+        }
+
+        if intervention_type not in INTERVENTION_FACTORS:
+            return _legacy_error(
+                400,
+                f"Invalid intervention type. Must be one of: {', '.join(INTERVENTION_FACTORS.keys())}",
+                "INVALID_INTERVENTION_TYPE",
+            )
+
+        baseline_df = pd.DataFrame({
+            "rain_intensity_mm_hr": [rain_intensity],
+            "impervious_pct": [current_imperviousness],
+            "slope_pct": [slope_pct],
+        })
+
+        reduction_factor = INTERVENTION_FACTORS[intervention_type]
+        intervention_imperviousness = max(0.0, current_imperviousness - reduction_factor)
+
+        intervention_df = pd.DataFrame({
+            "rain_intensity_mm_hr": [rain_intensity],
+            "impervious_pct": [intervention_imperviousness],
+            "slope_pct": [slope_pct],
+        })
+
+        depth_baseline = float(flood_pkl_model.predict(baseline_df)[0])
+        depth_intervention = float(flood_pkl_model.predict(intervention_df)[0])
+
+        avoided_depth_cm = depth_baseline - depth_intervention
+        percentage_improvement = (avoided_depth_cm / depth_baseline * 100) if depth_baseline > 0 else 0
+
+        def _flood_damage_pct(depth_cm: float) -> float:
+            """Urban flood depth-damage curve (Huizinga et al., 2017)."""
+            if depth_cm <= 0:
+                return 0.0
+            if depth_cm < 5:
+                return (depth_cm / 5.0) * 2.0
+            if depth_cm < 15:
+                return 2.0 + 6.0 * ((depth_cm - 5) / 10.0)
+            if depth_cm < 30:
+                return 8.0 + 12.0 * ((depth_cm - 15) / 15.0)
+            if depth_cm < 60:
+                return 20.0 + 20.0 * ((depth_cm - 30) / 30.0)
+            return min(40.0 + 30.0 * min((depth_cm - 60) / 60.0, 1.0), 70.0)
+
+        baseline_damage_pct = _flood_damage_pct(depth_baseline)
+        intervention_damage_pct = _flood_damage_pct(depth_intervention)
+        avoided_damage_pct = baseline_damage_pct - intervention_damage_pct
+        avoided_damage_usd = (avoided_damage_pct / 100) * num_buildings * building_value
+
+        from infrastructure_engine import calculate_avoided_business_interruption
+        has_intervention = intervention_type != "none"
+        interruption = calculate_avoided_business_interruption(
+            daily_revenue=daily_revenue,
+            expected_downtime_days=expected_downtime_days,
+            has_intervention=has_intervention,
+        )
+
+        return {
+            "status": "success",
+            "data": {
+                "input_conditions": {
+                    "rain_intensity_mm_hr": rain_intensity,
+                    "current_imperviousness": current_imperviousness,
+                    "intervention_type": intervention_type,
+                    "slope_pct": slope_pct,
+                    "building_value": building_value,
+                    "num_buildings": num_buildings,
+                    "initial_lifespan_years": initial_lifespan_years,
+                    "global_warming_c": global_warming,
+                    "daily_revenue": daily_revenue,
+                    "expected_downtime_days": expected_downtime_days,
+                },
+                "asset_depreciation": {
+                    "adjusted_lifespan": adjusted_lifespan,
+                    "lifespan_penalty": lifespan_penalty,
+                },
+                "imperviousness_change": {
+                    "baseline": round(current_imperviousness, 3),
+                    "intervention": round(intervention_imperviousness, 3),
+                    "reduction_factor": reduction_factor,
+                    "absolute_reduction": round(current_imperviousness - intervention_imperviousness, 3),
+                },
+                "predictions": {
+                    "baseline_depth_cm": round(depth_baseline, 2),
+                    "intervention_depth_cm": round(depth_intervention, 2),
+                },
+                "analysis": {
+                    "avoided_depth_cm": round(avoided_depth_cm, 2),
+                    "percentage_improvement": round(percentage_improvement, 2),
+                    "baseline_damage_pct": round(baseline_damage_pct, 2),
+                    "intervention_damage_pct": round(intervention_damage_pct, 2),
+                    "avoided_damage_pct": round(avoided_damage_pct, 2),
+                    "avoided_loss": round(avoided_damage_usd, 2),
+                    "recommendation": intervention_type if avoided_depth_cm > 0 else "none",
+                    "avoided_business_interruption": interruption["avoided_business_interruption"],
+                },
+                "economic_assumptions": {
+                    "num_buildings": num_buildings,
+                    "avg_building_value": building_value,
+                    "total_value_at_risk": num_buildings * building_value,
+                    "damage_function": "Urban Flood Damage (Huizinga et al., 2017)",
+                    "total_value_basis": "Avoided structural damage across affected buildings",
+                },
+                "depth_baseline": round(depth_baseline, 2),
+                "depth_intervention": round(depth_intervention, 2),
+                "avoided_loss": round(avoided_damage_usd, 2),
+                "avoided_business_interruption": interruption["avoided_business_interruption"],
+            },
+        }
+
+    except ValueError as ve:
+        return _legacy_error(400, f"Invalid numeric values: {str(ve)}", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        return _legacy_error(500, f"Prediction failed: {str(e)}", "PREDICTION_ERROR")
+
+
+@app.post("/start-batch")
+def start_batch(req: StartBatchRequest):
+    """Start a background batch processing job for portfolio assets."""
+    try:
+        job_id = req.job_id
+
+        thread = threading.Thread(
+            target=run_batch_job,
+            args=(job_id,),
+            daemon=True,
+        )
+        thread.start()
+
+        print(f"[API] Started batch job {job_id} in background thread", file=sys.stderr, flush=True)
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "started",
+                "job_id": job_id,
+                "message": "Batch processing started in background. Check batch_jobs table for status.",
+            },
+        )
+
+    except Exception as e:
+        return _legacy_error(500, f"Failed to start batch job: {str(e)}", "BATCH_START_ERROR")
+
+
+@app.post("/calculate-financials")
+def calculate_financials(req: CalculateFinancialsRequest):
+    """Calculate financial metrics (NPV, BCR, Payback Period) from cash flows."""
+    try:
+        cash_flows = [float(cf) for cf in req.cash_flows]
+        discount_rate = float(req.discount_rate)
+
+        metrics = calculate_roi_metrics(cash_flows, discount_rate)
+
+        return {
+            "status": "success",
+            "data": {
+                "input": {
+                    "cash_flows": cash_flows,
+                    "discount_rate": discount_rate,
+                    "discount_rate_pct": round(discount_rate * 100, 2),
+                },
+                "metrics": metrics,
+                "interpretation": {
+                    "npv_positive": metrics["npv"] > 0,
+                    "bcr_favorable": metrics["bcr"] > 1.0,
+                    "recommendation": "INVEST" if metrics["npv"] > 0 and metrics["bcr"] > 1.0 else "DO NOT INVEST",
+                },
+            },
+        }
+
+    except ValueError as ve:
+        return _legacy_error(400, f"Invalid numeric values: {str(ve)}", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        return _legacy_error(500, f"Financial calculation failed: {str(e)}", "CALCULATION_ERROR")
+
+
+@app.post("/predict-health")
+def predict_health(req: PredictHealthRequest):
+    """Predict climate-related health impacts including heat stress and malaria risk."""
+    try:
+        from health_engine import calculate_productivity_loss, calculate_malaria_risk, calculate_health_economic_impact
+
+        lat = req.lat
+        lon = req.lon
+        workforce_size = req.workforce_size
+        daily_wage = req.daily_wage
+
+        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}", file=sys.stderr, flush=True)
+
+        try:
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365)
+
+            weather_data = get_weather_data(
+                lat=lat, lon=lon,
+                start_date=start_date.strftime("%Y-%m-%d"),
+                end_date=end_date.strftime("%Y-%m-%d"),
+            )
+
+            temp_c = weather_data["max_temp_celsius"]
+            precip_mm = weather_data["total_precip_mm"]
+
+            if precip_mm < 500:
+                humidity_pct = 50.0
+            elif precip_mm < 1000:
+                humidity_pct = 65.0
+            else:
+                humidity_pct = 80.0
+
+            print(f"[HEALTH] Climate data: temp={temp_c}\u00b0C, precip={precip_mm}mm, humidity_est={humidity_pct}%", file=sys.stderr, flush=True)
+
+        except Exception as weather_error:
+            print(f"Weather data error: {weather_error}", file=sys.stderr, flush=True)
+            return _legacy_error(500, f"Failed to fetch climate data: {str(weather_error)}", "WEATHER_DATA_ERROR")
+
+        productivity_analysis = calculate_productivity_loss(temp_c, humidity_pct)
+        malaria_analysis = calculate_malaria_risk(temp_c, precip_mm)
+        economic_impact = calculate_health_economic_impact(
+            workforce_size=workforce_size,
+            daily_wage=daily_wage,
+            productivity_loss_pct=productivity_analysis["productivity_loss_pct"],
+            malaria_risk_score=malaria_analysis["risk_score"],
+        )
+
+        print(f"[HEALTH] WBGT={productivity_analysis['wbgt_estimate']}\u00b0C, loss={productivity_analysis['productivity_loss_pct']}%, malaria_risk={malaria_analysis['risk_category']}", file=sys.stderr, flush=True)
+
+        response_data = {
+            "location": {"lat": lat, "lon": lon},
+            "climate_conditions": {
+                "temperature_c": round(temp_c, 1),
+                "precipitation_mm": round(precip_mm, 1),
+                "humidity_pct_estimated": humidity_pct,
+            },
+            "heat_stress_analysis": productivity_analysis,
+            "malaria_risk_analysis": malaria_analysis,
+            "economic_impact": economic_impact,
+            "workforce_parameters": {
+                "workforce_size": workforce_size,
+                "daily_wage": daily_wage,
+                "currency": "USD",
+            },
+        }
+
+        return {"status": "success", "data": response_data}
+
+    except ValueError as ve:
+        return _legacy_error(400, f"Invalid numeric values: {str(ve)}", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        print(f"Health prediction error: {e}", file=sys.stderr, flush=True)
+        return _legacy_error(500, f"Health analysis failed: {str(e)}", "HEALTH_ERROR")
+
+
+@app.post("/predict-portfolio")
+def predict_portfolio(req: PredictPortfolioRequest):
+    """Analyze portfolio diversification across multiple locations.
+
+    Simulates 10 years of climate variation for each location and
+    calculates aggregate tonnage and portfolio volatility.
+    """
+    try:
+        from physics_engine import calculate_volatility
+
+        locations = req.locations
+        crop_type = req.crop_type.lower()
+
+        if crop_type not in ("maize", "cocoa"):
+            return _legacy_error(
+                400,
+                f"Unsupported crop_type: {crop_type}. Supported crops: 'maize', 'cocoa'",
+                "INVALID_CROP_TYPE",
+            )
+
+        print(f"[PORTFOLIO] Processing {len(locations)} locations for crop_type={crop_type}", file=sys.stderr, flush=True)
+
+        all_location_cvs: list[float] = []
+        total_tonnage = 0.0
+        location_results: list[dict] = []
+
+        for idx, loc in enumerate(locations):
+            lat = loc.lat
+            lon = loc.lon
+
+            print(f"[PORTFOLIO] Location {idx + 1}/{len(locations)}: lat={lat}, lon={lon}", file=sys.stderr, flush=True)
+
+            try:
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=365)
+
+                weather_data = get_weather_data(
+                    lat=lat, lon=lon,
+                    start_date=start_date.strftime("%Y-%m-%d"),
+                    end_date=end_date.strftime("%Y-%m-%d"),
+                )
+
+                base_temp = weather_data["max_temp_celsius"]
+                base_rain = weather_data["total_precip_mm"]
+
+            except Exception as weather_error:
+                print(f"Weather data error for location {idx}: {weather_error}", file=sys.stderr, flush=True)
+                return _legacy_error(
+                    500,
+                    f"Failed to fetch weather data for location {idx}: {str(weather_error)}",
+                    "WEATHER_DATA_ERROR",
+                )
+
+            years = 10
+            annual_yields: list[float] = []
+
+            for _ in range(years):
+                temp_variation = random.uniform(-2.0, 2.0)
+                rain_variation = random.uniform(-15.0, 15.0)
+
+                year_yield = calculate_yield(
+                    temp=base_temp, rain=base_rain,
+                    seed_type=SEED_TYPES["resilient"],
+                    crop_type=crop_type,
+                    temp_delta=temp_variation,
+                    rain_pct_change=rain_variation,
+                )
+                annual_yields.append(year_yield)
+
+            mean_yield = statistics.mean(annual_yields)
+            location_cv = calculate_volatility(annual_yields)
+
+            max_potential_tons = 10.0
+            location_tonnage = (mean_yield / 100.0) * max_potential_tons
+
+            total_tonnage += location_tonnage
+            all_location_cvs.append(location_cv)
+
+            location_results.append({
+                "location_index": idx,
+                "lat": lat,
+                "lon": lon,
+                "mean_yield_pct": round(mean_yield, 2),
+                "volatility_cv_pct": location_cv,
+                "tonnage": round(location_tonnage, 2),
+            })
+
+            print(f"[PORTFOLIO] Location {idx + 1} complete: mean_yield={mean_yield:.2f}%, CV={location_cv:.2f}%, tonnage={location_tonnage:.2f}t", file=sys.stderr, flush=True)
+
+        portfolio_volatility = statistics.mean(all_location_cvs) if all_location_cvs else 0.0
+
+        if portfolio_volatility < 10.0:
+            risk_rating = "Low"
+        elif portfolio_volatility < 20.0:
+            risk_rating = "Medium"
+        elif portfolio_volatility < 30.0:
+            risk_rating = "High"
+        else:
+            risk_rating = "Very High"
+
+        print(f"[PORTFOLIO] Complete: total_tonnage={total_tonnage:.2f}t, portfolio_volatility={portfolio_volatility:.2f}%, risk={risk_rating}", file=sys.stderr, flush=True)
+
+        return {
+            "status": "success",
+            "data": {
+                "portfolio_summary": {
+                    "total_tonnage": round(total_tonnage, 2),
+                    "portfolio_volatility_pct": round(portfolio_volatility, 2),
+                    "risk_rating": risk_rating,
+                    "num_locations": len(locations),
+                    "crop_type": crop_type,
+                },
+                "locations": location_results,
+                "risk_interpretation": {
+                    "low": "0-10% CV: Very stable production",
+                    "medium": "10-20% CV: Moderate variation",
+                    "high": "20-30% CV: Significant variation",
+                    "very_high": "30%+ CV: Highly volatile",
+                },
+            },
+        }
+
+    except ValueError as ve:
+        return _legacy_error(400, f"Invalid numeric values: {str(ve)}", "INVALID_NUMERIC_VALUE")
+    except Exception as e:
+        print(f"Portfolio error: {e}", file=sys.stderr, flush=True)
+        return _legacy_error(500, f"Portfolio analysis failed: {str(e)}", "PORTFOLIO_ERROR")
 
 
 def main() -> None:

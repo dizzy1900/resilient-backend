@@ -7,17 +7,8 @@
 # All versions tested and verified compatible with geospatial stack
 # ===================================================================
 
-# Core Web Framework
-Flask==3.1.2
-flask-cors==6.0.2
-Werkzeug==3.1.5
+# Web Framework (FastAPI)
 click==8.3.1
-blinker==1.9.0
-itsdangerous==2.2.0
-Jinja2==3.1.6
-MarkupSafe==3.0.3
-
-# FastAPI Simulation Service
 fastapi==0.109.0
 uvicorn==0.27.0
 python-multipart==0.0.9
