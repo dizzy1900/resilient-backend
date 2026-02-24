@@ -19,7 +19,7 @@ import re
 import subprocess
 import json
 import asyncio
-from typing import Literal, Optional, Dict, Any, List
+from typing import Literal, Optional, Dict, Any, List, Tuple
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -160,6 +160,50 @@ class AgricultureRequest(BaseModel):
     temp_delta: float = Field(0.0, description="Temperature increase in °C")
     rain_pct_change: float = Field(0.0, description="Rainfall change as percentage")
     financial_overrides: Optional[FinancialOverrides] = Field(None, description="Custom financial parameters")
+
+
+# ---------------------------------------------------------------------------
+# Crop Switching What-If Engine (Agriculture module)
+# ---------------------------------------------------------------------------
+
+# Drought index: 0.0 = no drought, 1.0 = severe. "High" stress threshold used in logic.
+DROUGHT_INDEX_HIGH_THRESHOLD = 0.6
+GLOBAL_WARMING_STRESS_THRESHOLD = 1.5
+
+# Yield penalty (fraction of baseline lost) by current crop under climate stress.
+CLIMATE_PENALTY_BY_CROP: Dict[str, float] = {
+    "maize": 0.30,
+    "Maize": 0.30,
+    "wheat": 0.40,
+    "Wheat": 0.40,
+}
+
+# Default penalty for unlisted current crops under stress.
+DEFAULT_CLIMATE_PENALTY = 0.25
+
+# Proposed crop: (capex_per_hectare_usd, yield_penalty_under_stress_fraction)
+PROPOSED_CROP_ECONOMICS: Dict[str, Tuple[float, float]] = {
+    "Drought-Resistant Sorghum": (400.0, 0.05),
+    "Heat-Tolerant Wheat": (350.0, 0.10),
+}
+
+
+class PredictAgriRequest(BaseModel):
+    """Request for Crop Switching What-If: current vs proposed crop under climate stress."""
+    current_crop: str = Field("Maize", description="Current crop (e.g. Maize, Wheat)")
+    proposed_crop: str = Field("None", description="Proposed alternative (e.g. Drought-Resistant Sorghum, Heat-Tolerant Wheat, or None)")
+    hectares: float = Field(1000.0, ge=0.0, description="Area in hectares")
+    baseline_yield_value: float = Field(500000.0, ge=0.0, description="Baseline revenue/yield value in USD")
+    global_warming: float = Field(0.0, ge=-1.0, le=5.0, description="Global warming in °C (e.g. 1.5, 2.0)")
+    drought_index: float = Field(0.0, ge=0.0, le=1.0, description="Drought index 0–1; high stress when > 0.6")
+
+
+class PredictAgriResponse(BaseModel):
+    """Response for Crop Switching What-If with stressed yield and transition economics."""
+    stressed_yield_value: float
+    adjusted_yield_value: float
+    transition_capex: float
+    avoided_revenue_loss: float
 
 
 class CoastalRequest(BaseModel):
@@ -457,6 +501,63 @@ def run_agriculture_simulation(req: AgricultureRequest) -> dict:
         ) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _climate_stress_applies(global_warming: float, drought_index: float) -> bool:
+    """True if global warming > 1.5°C or drought index is high (e.g. > 0.6)."""
+    return (
+        global_warming > GLOBAL_WARMING_STRESS_THRESHOLD
+        or drought_index > DROUGHT_INDEX_HIGH_THRESHOLD
+    )
+
+
+def _current_crop_penalty_fraction(current_crop: str) -> float:
+    """Return yield penalty fraction (0–1) for current crop under climate stress."""
+    return CLIMATE_PENALTY_BY_CROP.get(current_crop, DEFAULT_CLIMATE_PENALTY)
+
+
+@app.post("/predict-agri", response_model=PredictAgriResponse)
+def predict_agri(req: PredictAgriRequest) -> PredictAgriResponse:
+    """Crop Switching What-If Engine: compare current crop yield under climate stress
+    with a proposed alternative (e.g. Drought-Resistant Sorghum, Heat-Tolerant Wheat).
+    Returns stressed yield, adjusted yield after switch, transition CAPEX, and avoided revenue loss.
+    """
+    baseline: float = float(req.baseline_yield_value)
+    hectares: float = float(req.hectares)
+    current_crop: str = req.current_crop.strip() or "Maize"
+    proposed_crop: str = req.proposed_crop.strip() if req.proposed_crop else "None"
+    if proposed_crop.lower() == "none":
+        proposed_crop = "None"
+    global_warming: float = float(req.global_warming)
+    drought_index: float = float(req.drought_index)
+
+    # 1. Climate penalty (current crop)
+    stress: bool = _climate_stress_applies(global_warming, drought_index)
+    penalty_fraction: float = _current_crop_penalty_fraction(current_crop) if stress else 0.0
+    penalty_amount: float = baseline * penalty_fraction
+    stressed_yield_value: float = baseline - penalty_amount
+
+    # 2. Transition economics (proposed crop)
+    transition_capex: float = 0.0
+    adjusted_yield_value: float = stressed_yield_value
+    avoided_revenue_loss: float = 0.0
+
+    if proposed_crop != "None" and proposed_crop in PROPOSED_CROP_ECONOMICS:
+        capex_per_ha, proposed_penalty_fraction = PROPOSED_CROP_ECONOMICS[proposed_crop]
+        transition_capex = capex_per_ha * hectares
+        # Proposed crop suffers only proposed_penalty under the same climate stress.
+        if stress:
+            adjusted_yield_value = baseline * (1.0 - proposed_penalty_fraction)
+        else:
+            adjusted_yield_value = baseline
+        avoided_revenue_loss = adjusted_yield_value - stressed_yield_value
+
+    return PredictAgriResponse(
+        stressed_yield_value=round(stressed_yield_value, 2),
+        adjusted_yield_value=round(adjusted_yield_value, 2),
+        transition_capex=round(transition_capex, 2),
+        avoided_revenue_loss=round(avoided_revenue_loss, 2),
+    )
 
 
 @app.post("/simulate/coastal")
