@@ -204,6 +204,7 @@ class PredictAgriResponse(BaseModel):
     adjusted_yield_value: float
     transition_capex: float
     avoided_revenue_loss: float
+    risk_reduction_pct: float = 0.0
 
 
 class CoastalRequest(BaseModel):
@@ -516,13 +517,20 @@ def _current_crop_penalty_fraction(current_crop: str) -> float:
     return CLIMATE_PENALTY_BY_CROP.get(current_crop, DEFAULT_CLIMATE_PENALTY)
 
 
+# Minimum baseline yield value (USD) so dollar outputs are meaningful; use when payload omits or sends tiny value.
+AGRI_BASELINE_YIELD_VALUE_FLOOR = 500_000.0
+
+
 @app.post("/predict-agri", response_model=PredictAgriResponse)
 def predict_agri(req: PredictAgriRequest) -> PredictAgriResponse:
     """Crop Switching What-If Engine: compare current crop yield under climate stress
     with a proposed alternative (e.g. Drought-Resistant Sorghum, Heat-Tolerant Wheat).
-    Returns stressed yield, adjusted yield after switch, transition CAPEX, and avoided revenue loss.
+    Returns stressed yield, adjusted yield after switch, transition CAPEX, avoided revenue loss, and risk reduction %.
     """
-    baseline: float = float(req.baseline_yield_value)
+    # Ensure baseline is a monetary base (USD): default to 500k if not provided or unreasonably small
+    raw_baseline: float = float(req.baseline_yield_value)
+    baseline: float = raw_baseline if raw_baseline >= 1000.0 else AGRI_BASELINE_YIELD_VALUE_FLOOR
+
     hectares: float = float(req.hectares)
     current_crop: str = req.current_crop.strip() or "Maize"
     proposed_crop: str = req.proposed_crop.strip() if req.proposed_crop else "None"
@@ -531,32 +539,42 @@ def predict_agri(req: PredictAgriRequest) -> PredictAgriResponse:
     global_warming: float = float(req.global_warming)
     drought_index: float = float(req.drought_index)
 
-    # 1. Climate penalty (current crop)
+    # 1. Climate penalty (current crop) — apply penalty fraction to dollar baseline
     stress: bool = _climate_stress_applies(global_warming, drought_index)
-    penalty_fraction: float = _current_crop_penalty_fraction(current_crop) if stress else 0.0
-    penalty_amount: float = baseline * penalty_fraction
+    stressed_penalty: float = _current_crop_penalty_fraction(current_crop) if stress else 0.0
+    penalty_amount: float = baseline * stressed_penalty
     stressed_yield_value: float = baseline - penalty_amount
 
-    # 2. Transition economics (proposed crop)
+    # 2. Transition economics (proposed crop): CAPEX and adjusted yield in dollars
     transition_capex: float = 0.0
     adjusted_yield_value: float = stressed_yield_value
     avoided_revenue_loss: float = 0.0
+    adjusted_penalty: float = stressed_penalty
 
     if proposed_crop != "None" and proposed_crop in PROPOSED_CROP_ECONOMICS:
         capex_per_ha, proposed_penalty_fraction = PROPOSED_CROP_ECONOMICS[proposed_crop]
         transition_capex = capex_per_ha * hectares
-        # Proposed crop suffers only proposed_penalty under the same climate stress.
+        adjusted_penalty = proposed_penalty_fraction if stress else 0.0
+        # Apply percentage penalty to baseline to get dollar values
         if stress:
             adjusted_yield_value = baseline * (1.0 - proposed_penalty_fraction)
         else:
             adjusted_yield_value = baseline
         avoided_revenue_loss = adjusted_yield_value - stressed_yield_value
 
+    # 3. Risk reduction %: (stressed_penalty - adjusted_penalty) / stressed_penalty * 100, capped at 100%
+    if stressed_penalty > 0:
+        risk_reduction_pct: float = ((stressed_penalty - adjusted_penalty) / stressed_penalty) * 100.0
+        risk_reduction_pct = min(100.0, max(0.0, risk_reduction_pct))
+    else:
+        risk_reduction_pct = 0.0
+
     return PredictAgriResponse(
         stressed_yield_value=round(stressed_yield_value, 2),
         adjusted_yield_value=round(adjusted_yield_value, 2),
         transition_capex=round(transition_capex, 2),
         avoided_revenue_loss=round(avoided_revenue_loss, 2),
+        risk_reduction_pct=round(risk_reduction_pct, 2),
     )
 
 
