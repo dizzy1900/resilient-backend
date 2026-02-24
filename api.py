@@ -268,12 +268,13 @@ class PredictRequest(BaseModel):
 class PredictCoastalRunupRequest(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lon: float = Field(..., ge=-180, le=180)
-    mangrove_width: float
-    initial_lifespan_years: int = 30
-    sea_level_rise: float = 0.0
-    intervention: str = ""
-    daily_revenue: float = 0.0
-    expected_downtime_days: int = 0
+    mangrove_width: float = Field(..., description="Mangrove buffer width in meters")
+    initial_lifespan_years: int = Field(30, ge=1, le=200)
+    sea_level_rise: float = Field(0.0, description="Sea level rise in meters")
+    intervention: str = Field("", description="e.g. 'Sea Wall', 'Drainage Upgrade', 'Sponge City'")
+    base_annual_opex: float = Field(25000.0, description="Base annual OPEX in USD for material degradation")
+    daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
+    expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days")
 
 
 class PredictCoastalFloodRequest(BaseModel):
@@ -298,16 +299,17 @@ class PredictFlashFloodRequest(BaseModel):
 
 
 class PredictUrbanFloodRequest(BaseModel):
-    rain_intensity: float
-    current_imperviousness: float
-    intervention_type: str
-    slope_pct: float = 2.0
-    building_value: float = 750000.0
-    num_buildings: int = 1
-    initial_lifespan_years: int = 30
-    global_warming: float = 0.0
-    daily_revenue: float = 0.0
-    expected_downtime_days: int = 0
+    rain_intensity: float = Field(..., description="Rainfall intensity mm/hr")
+    current_imperviousness: float = Field(..., ge=0.0, le=1.0)
+    intervention_type: str = Field(..., description="e.g. 'sponge_city', 'Drainage Upgrade', 'Sea Wall'")
+    slope_pct: float = Field(2.0, ge=0.1, le=10.0)
+    building_value: float = Field(750000.0, description="Building value in USD")
+    num_buildings: int = Field(1, ge=1)
+    initial_lifespan_years: int = Field(30, ge=1, le=200)
+    global_warming: float = Field(0.0, description="Global warming in °C for lifespan/OPEX penalty")
+    base_annual_opex: float = Field(25000.0, description="Base annual OPEX in USD for material degradation")
+    daily_revenue: float = Field(0.0, description="Daily revenue (USD) for business interruption")
+    expected_downtime_days: int = Field(0, ge=0, description="Expected downtime days")
 
 
 class StartBatchRequest(BaseModel):
@@ -1015,6 +1017,21 @@ def _legacy_error(status_code: int, message: str, code: str) -> JSONResponse:
     )
 
 
+# Material Degradation Curves: interventions that reduce OPEX climate penalty by 85%
+_OPEX_INTERVENTION_NAMES = frozenset(
+    s.lower().replace(" ", "_").replace("-", "_")
+    for s in ("Sea Wall", "Drainage Upgrade", "Sponge City")
+)
+
+
+def _has_opex_intervention(intervention: str) -> bool:
+    """True if intervention protects asset and reduces OPEX climate penalty (85% reduction)."""
+    if not intervention or not isinstance(intervention, str):
+        return False
+    normalized = intervention.strip().lower().replace(" ", "_").replace("-", "_")
+    return normalized in _OPEX_INTERVENTION_NAMES or normalized == "sponge_city"
+
+
 @app.get("/")
 def index():
     return {"status": "active"}
@@ -1400,6 +1417,19 @@ def predict_coastal(req: PredictCoastalRunupRequest):
             has_intervention=has_intervention,
         )
 
+        # Material Degradation Curves: OPEX penalty from salinity/corrosion (sea level rise)
+        base_annual_opex: float = float(req.base_annual_opex)
+        if sea_level_rise > 1.0:
+            opex_penalty_pct = 0.30
+        elif sea_level_rise > 0.5:
+            opex_penalty_pct = 0.15
+        else:
+            opex_penalty_pct = 0.0
+        opex_climate_penalty: float = base_annual_opex * opex_penalty_pct
+        if _has_opex_intervention(intervention):
+            opex_climate_penalty *= 0.15  # 85% reduction
+        adjusted_opex: float = base_annual_opex + opex_climate_penalty
+
         return {
             "status": "success",
             "data": {
@@ -1410,6 +1440,7 @@ def predict_coastal(req: PredictCoastalRunupRequest):
                     "initial_lifespan_years": initial_lifespan_years,
                     "sea_level_rise_m": sea_level_rise,
                     "intervention": intervention or None,
+                    "base_annual_opex": base_annual_opex,
                     "daily_revenue": daily_revenue,
                     "expected_downtime_days": expected_downtime_days,
                 },
@@ -1432,6 +1463,10 @@ def predict_coastal(req: PredictCoastalRunupRequest):
                     "adjusted_lifespan": adjusted_lifespan,
                     "lifespan_penalty": lifespan_penalty,
                 },
+                "material_degradation_opex": {
+                    "adjusted_opex": round(adjusted_opex, 2),
+                    "opex_climate_penalty": round(opex_climate_penalty, 2),
+                },
                 "economic_assumptions": {
                     "damage_cost_per_meter": DAMAGE_COST_PER_METER,
                     "num_properties": NUM_PROPERTIES,
@@ -1441,6 +1476,8 @@ def predict_coastal(req: PredictCoastalRunupRequest):
                 "storm_wave": round(wave_height, 2),
                 "avoided_loss": round(avoided_damage_usd, 2),
                 "avoided_business_interruption": interruption["avoided_business_interruption"],
+                "adjusted_opex": round(adjusted_opex, 2),
+                "opex_climate_penalty": round(opex_climate_penalty, 2),
             },
         }
 
@@ -1744,6 +1781,19 @@ def predict_flood(req: PredictUrbanFloodRequest):
             initial_lifespan_years, raw_penalty, has_intervention_rescue
         )
 
+        # Material Degradation Curves: OPEX penalty from thermal expansion/waterlogging (global warming)
+        base_annual_opex: float = float(req.base_annual_opex)
+        if global_warming > 2.0:
+            opex_penalty_pct = 0.25
+        elif global_warming > 1.5:
+            opex_penalty_pct = 0.12
+        else:
+            opex_penalty_pct = 0.0
+        opex_climate_penalty: float = base_annual_opex * opex_penalty_pct
+        if _has_opex_intervention(intervention_type):
+            opex_climate_penalty *= 0.15  # 85% reduction
+        adjusted_opex: float = base_annual_opex + opex_climate_penalty
+
         if not (10 <= rain_intensity <= 150):
             return _legacy_error(400, "Rain intensity must be between 10 and 150 mm/hr", "INVALID_RAIN_INTENSITY")
         if not (0.0 <= current_imperviousness <= 1.0):
@@ -1828,12 +1878,17 @@ def predict_flood(req: PredictUrbanFloodRequest):
                     "num_buildings": num_buildings,
                     "initial_lifespan_years": initial_lifespan_years,
                     "global_warming_c": global_warming,
+                    "base_annual_opex": base_annual_opex,
                     "daily_revenue": daily_revenue,
                     "expected_downtime_days": expected_downtime_days,
                 },
                 "asset_depreciation": {
                     "adjusted_lifespan": adjusted_lifespan,
                     "lifespan_penalty": lifespan_penalty,
+                },
+                "material_degradation_opex": {
+                    "adjusted_opex": round(adjusted_opex, 2),
+                    "opex_climate_penalty": round(opex_climate_penalty, 2),
                 },
                 "imperviousness_change": {
                     "baseline": round(current_imperviousness, 3),
@@ -1866,6 +1921,8 @@ def predict_flood(req: PredictUrbanFloodRequest):
                 "depth_intervention": round(depth_intervention, 2),
                 "avoided_loss": round(avoided_damage_usd, 2),
                 "avoided_business_interruption": interruption["avoided_business_interruption"],
+                "adjusted_opex": round(adjusted_opex, 2),
+                "opex_climate_penalty": round(opex_climate_penalty, 2),
             },
         }
 
