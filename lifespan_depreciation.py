@@ -1,7 +1,7 @@
 """
 Dynamic Asset Depreciation: climate penalty and intervention rescue.
 
-Shared by Flask (main.py) and FastAPI (api.py). Thresholds are configurable.
+Used by api.py. Thresholds are configurable.
 """
 from __future__ import annotations
 
