@@ -63,6 +63,9 @@ from flood_engine import (
 )
 from financial_engine import calculate_roi_metrics, calculate_npv, calculate_payback_period
 
+from auth import router as auth_router
+from database import Base, engine
+
 # ---------------------------------------------------------------------------
 # In-process ML models (ported from Flask)
 # ---------------------------------------------------------------------------
@@ -395,6 +398,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
+
+
+@app.on_event("startup")
+async def _create_auth_tables():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 @app.get("/health")

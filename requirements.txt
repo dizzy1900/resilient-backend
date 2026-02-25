@@ -71,6 +71,7 @@ gotrue==2.11.0         # Supabase auth client (required <3.0.0,>=2.11.0)
 
 # Data Validation
 pydantic>=2.11.7        # Data validation
+email-validator==2.2.0  # Required by Pydantic EmailStr
 
 # Analytics & Monitoring
 posthog==7.6.0         # Product analytics
@@ -94,6 +95,13 @@ proto-plus==1.27.0
 pyasn1==0.6.2
 pyasn1_modules==0.4.2
 rsa==4.9.1
+
+# Auth Engine (JWT + password hashing + async DB)
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+PyJWT==2.9.0
+SQLAlchemy==2.0.36
+aiosqlite==0.20.0
 
 # URI Templates (Google APIs)
 uritemplate==4.2.0
