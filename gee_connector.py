@@ -314,6 +314,56 @@ def get_terrain_data(lat: float, lon: float) -> dict:
     }
 
 
+def get_ndvi_timeseries(lat: float, lon: float) -> list[dict]:
+    """
+    Fetch a 12-month NDVI time-series from MODIS MOD13A2 (16-day, 1 km)
+    for a single point.
+
+    Returns a list of ``{"month": "YYYY-MM", "value": <float>}`` dicts
+    sorted chronologically.  NDVI is already rescaled from the raw
+    MODIS integer (×0.0001).
+    """
+    authenticate_gee()
+
+    point = ee.Geometry.Point([lon, lat])
+
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=365)
+
+    collection = (
+        ee.ImageCollection("MODIS/061/MOD13A2")
+        .filterBounds(point)
+        .filterDate(
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
+        )
+        .select("NDVI")
+    )
+
+    region_data = collection.getRegion(point, scale=1000).getInfo()
+
+    header = region_data[0]
+    ndvi_idx = header.index("NDVI")
+    time_idx = header.index("time")
+
+    monthly: dict[str, list[float]] = {}
+    for row in region_data[1:]:
+        ndvi_raw = row[ndvi_idx]
+        if ndvi_raw is None:
+            continue
+        ndvi = ndvi_raw * 0.0001
+
+        ts_ms = row[time_idx]
+        dt = datetime.utcfromtimestamp(ts_ms / 1000)
+        key = dt.strftime("%Y-%m")
+        monthly.setdefault(key, []).append(ndvi)
+
+    return [
+        {"month": k, "value": round(sum(v) / len(v), 4)}
+        for k, v in sorted(monthly.items())
+    ]
+
+
 def analyze_spatial_viability(lat: float, lon: float, temp_increase_c: float) -> dict:
     """
     Analyze spatial viability of cropland under temperature increase scenarios.

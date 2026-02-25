@@ -53,7 +53,7 @@ from fastapi.responses import JSONResponse
 
 from gee_connector import (
     get_weather_data, get_coastal_params, get_monthly_data,
-    analyze_spatial_viability, get_terrain_data,
+    analyze_spatial_viability, get_terrain_data, get_ndvi_timeseries,
 )
 from batch_processor import run_batch_job
 from coastal_engine import analyze_flood_risk, analyze_urban_impact
@@ -2330,6 +2330,47 @@ def predict_portfolio(req: PredictPortfolioRequest):
     except Exception as e:
         print(f"Portfolio error: {e}", file=sys.stderr, flush=True)
         return _legacy_error(500, f"Portfolio analysis failed: {str(e)}", "PORTFOLIO_ERROR")
+
+
+# ---------------------------------------------------------------------------
+# Earth Observation — NDVI time-series
+# ---------------------------------------------------------------------------
+
+def _ndvi_mock_series() -> list[dict]:
+    """Generate a deterministic 12-month mock NDVI series as a safe fallback."""
+    base = [0.32, 0.35, 0.42, 0.55, 0.68, 0.74,
+            0.76, 0.72, 0.63, 0.50, 0.38, 0.33]
+    now = datetime.now()
+    return [
+        {
+            "month": f"{(now - timedelta(days=30 * (12 - i))).strftime('%Y-%m')}",
+            "value": round(v + random.uniform(-0.02, 0.02), 4),
+        }
+        for i, v in enumerate(base)
+    ]
+
+
+@app.get("/api/v1/eo/ndvi")
+def eo_ndvi(lat: float, lon: float):
+    """Return a 12-month NDVI time-series from MODIS via Google Earth Engine."""
+    try:
+        series = get_ndvi_timeseries(lat, lon)
+        return {"status": "success", "source": "gee", "data": series}
+    except Exception as exc:
+        print(
+            f"[EO/NDVI] GEE request failed for lat={lat}, lon={lon}: {exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "fallback",
+                "message": "GEE unavailable – returning mock NDVI data",
+                "source": "mock",
+                "data": _ndvi_mock_series(),
+            },
+        )
 
 
 def main() -> None:
