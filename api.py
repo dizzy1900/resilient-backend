@@ -539,13 +539,15 @@ def predict_agri(req: PredictAgriRequest) -> PredictAgriResponse:
     global_warming: float = float(req.global_warming)
     drought_index: float = float(req.drought_index)
 
-    # 1. Climate penalty (current crop) — apply penalty fraction to dollar baseline
+    # 1. Baseline penalty (current crop): ALWAYS apply for Maize/Wheat so stressed yield reflects climate risk
     stress: bool = _climate_stress_applies(global_warming, drought_index)
-    stressed_penalty: float = _current_crop_penalty_fraction(current_crop) if stress else 0.0
+    force_baseline_penalty: bool = current_crop.strip().lower() in ("maize", "wheat")
+    apply_baseline_penalty: bool = stress or force_baseline_penalty
+    stressed_penalty: float = _current_crop_penalty_fraction(current_crop) if apply_baseline_penalty else 0.0
     penalty_amount: float = baseline * stressed_penalty
     stressed_yield_value: float = baseline - penalty_amount
 
-    # 2. Transition economics (proposed crop): CAPEX and adjusted yield in dollars
+    # 2. Transition economics (proposed crop): CAPEX and adjusted yield with smaller penalty
     transition_capex: float = 0.0
     adjusted_yield_value: float = stressed_yield_value
     avoided_revenue_loss: float = 0.0
@@ -554,12 +556,9 @@ def predict_agri(req: PredictAgriRequest) -> PredictAgriResponse:
     if proposed_crop != "None" and proposed_crop in PROPOSED_CROP_ECONOMICS:
         capex_per_ha, proposed_penalty_fraction = PROPOSED_CROP_ECONOMICS[proposed_crop]
         transition_capex = capex_per_ha * hectares
-        adjusted_penalty = proposed_penalty_fraction if stress else 0.0
-        # Apply percentage penalty to baseline to get dollar values
-        if stress:
-            adjusted_yield_value = baseline * (1.0 - proposed_penalty_fraction)
-        else:
-            adjusted_yield_value = baseline
+        adjusted_penalty = proposed_penalty_fraction
+        # Adjusted yield = baseline minus small penalty (e.g. 5% for Drought-Resistant Sorghum)
+        adjusted_yield_value = baseline * (1.0 - proposed_penalty_fraction)
         avoided_revenue_loss = adjusted_yield_value - stressed_yield_value
 
     # 3. Risk reduction %: (stressed_penalty - adjusted_penalty) / stressed_penalty * 100, capped at 100%
