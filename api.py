@@ -40,6 +40,7 @@ from lifespan_depreciation import (
     coastal_has_intervention_rescue,
     flood_has_intervention_rescue,
 )
+from price_shock_engine import calculate_price_shock
 
 import math
 import pickle
@@ -282,6 +283,7 @@ class CVaRRequest(BaseModel):
     num_simulations: int = Field(10_000, ge=100, le=1_000_000, description="Number of Monte Carlo trials")
 
 
+<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # Pydantic models for legacy /predict-* routes (ported from Flask)
 # ---------------------------------------------------------------------------
@@ -386,6 +388,26 @@ class PredictPortfolioLocation(BaseModel):
 class PredictPortfolioRequest(BaseModel):
     locations: List[PredictPortfolioLocation] = Field(..., min_length=1)
     crop_type: str = "maize"
+
+
+class PriceShockRequest(BaseModel):
+    """Request for commodity price shock calculation from climate-induced yield loss."""
+    crop_type: str = Field(..., description="Crop type (e.g., maize, soybeans, wheat, rice, cocoa, coffee)")
+    baseline_yield_tons: float = Field(..., gt=0, description="Expected yield under normal conditions (metric tons)")
+    stressed_yield_tons: float = Field(..., ge=0, description="Actual/projected yield under climate stress (metric tons)")
+
+
+class PriceShockResponse(BaseModel):
+    """Response for commodity price shock calculation."""
+    baseline_price: float = Field(..., description="Original commodity price (USD/ton)")
+    shocked_price: float = Field(..., description="New price after supply shock (USD/ton)")
+    price_increase_pct: float = Field(..., description="Percentage increase in price")
+    price_increase_usd: float = Field(..., description="Absolute increase in price (USD/ton)")
+    yield_loss_pct: float = Field(..., description="Percentage drop in yield")
+    yield_loss_tons: float = Field(..., description="Absolute drop in yield (tons)")
+    elasticity: float = Field(..., description="Supply elasticity coefficient used")
+    forward_contract_recommendation: str = Field(..., description="Risk management advice")
+    revenue_impact: Dict[str, float] = Field(..., description="Net revenue change analysis")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -1135,6 +1157,7 @@ def cvar_simulation(req: CVaRRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # Legacy /predict-* routes (ported from Flask main.py)
 # ---------------------------------------------------------------------------
@@ -2371,6 +2394,54 @@ def eo_ndvi(lat: float, lon: float):
                 "data": _ndvi_mock_series(),
             },
         )
+
+
+@app.post("/api/v1/finance/price-shock", response_model=PriceShockResponse)
+def price_shock(req: PriceShockRequest) -> dict:
+    """Calculate commodity price shock from climate-induced yield loss.
+
+    When climate stress reduces local crop yields, this endpoint calculates the
+    resulting spike in local commodity prices based on price elasticity of supply.
+
+    Theory:
+    - Price Elasticity of Supply: ε = (% change in quantity) / (% change in price)
+    - When supply drops, prices rise according to: % price change = (% supply change) / ε
+    - For agricultural commodities, supply is typically inelastic in the short term,
+      so price shocks can be severe (e.g., 10% yield loss → 40% price increase for maize).
+
+    Example Use Cases:
+    - Assess financial impact of drought on farmers' revenue
+    - Determine optimal hedging strategy via forward contracts
+    - Calculate price risk for food importers/processors
+    - Evaluate crop insurance payout thresholds
+
+    Supported Crops:
+    - Grains: maize, wheat, rice, barley, sorghum, millet
+    - Oilseeds: soybeans, canola, sunflower
+    - Cash crops: cocoa, coffee, cotton, sugar
+    - Pulses: chickpeas, lentils, beans
+    - Other: cassava, potato, tomato
+
+    Returns:
+    - Baseline and shocked prices
+    - Revenue impact (yield loss partially offset by higher prices)
+    - Forward contract recommendation based on risk severity
+    """
+    try:
+        result = calculate_price_shock(
+            crop_type=req.crop_type,
+            baseline_yield_tons=req.baseline_yield_tons,
+            stressed_yield_tons=req.stressed_yield_tons
+        )
+        return result
+
+    except ValueError as e:
+        # User input validation errors (invalid crop type, negative yields, etc.)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    
+    except Exception as e:
+        # Unexpected errors
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 def main() -> None:
