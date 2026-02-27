@@ -282,8 +282,6 @@ class CVaRRequest(BaseModel):
     volatility_pct: float = Field(0.05, description="Damage volatility as decimal (e.g. 0.05 for 5%)")
     num_simulations: int = Field(10_000, ge=100, le=1_000_000, description="Number of Monte Carlo trials")
 
-
-<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # Pydantic models for legacy /predict-* routes (ported from Flask)
 # ---------------------------------------------------------------------------
@@ -1156,8 +1154,6 @@ def cvar_simulation(req: CVaRRequest) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-
-<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # Legacy /predict-* routes (ported from Flask main.py)
 # ---------------------------------------------------------------------------
