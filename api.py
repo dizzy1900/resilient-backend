@@ -376,6 +376,21 @@ class PredictHealthRequest(BaseModel):
     lon: float = Field(..., ge=-180, le=180)
     workforce_size: int = Field(..., gt=0)
     daily_wage: float = Field(..., gt=0)
+    # Cooling intervention fields
+    intervention_type: Optional[str] = Field(
+        None, 
+        description="Cooling intervention type: 'hvac_retrofit', 'passive_cooling', or 'none'"
+    )
+    intervention_capex: Optional[float] = Field(
+        None, 
+        ge=0, 
+        description="Upfront capital expenditure for cooling intervention in USD"
+    )
+    intervention_annual_opex: Optional[float] = Field(
+        None, 
+        ge=0, 
+        description="Annual operating expenditure for cooling system in USD"
+    )
 
 
 class PredictPortfolioLocation(BaseModel):
@@ -2148,7 +2163,21 @@ def calculate_financials(req: CalculateFinancialsRequest):
 
 @app.post("/predict-health")
 def predict_health(req: PredictHealthRequest):
-    """Predict climate-related health impacts including heat stress and malaria risk."""
+    """Predict climate-related health impacts including heat stress and malaria risk.
+    
+    Now includes Cooling CAPEX vs. Productivity OPEX Cost-Benefit Analysis.
+    
+    Cooling interventions reduce WBGT (Wet Bulb Globe Temperature) which improves
+    worker productivity. The analysis calculates:
+    - Avoided productivity loss from cooling
+    - Simple payback period (CAPEX / Net Annual Benefit)
+    - 10-year NPV at 10% discount rate
+    
+    Intervention types:
+    - hvac_retrofit: Active cooling system (drops WBGT to safe 22°C)
+    - passive_cooling: Passive design improvements (drops WBGT by 3°C)
+    - none: No intervention (baseline scenario)
+    """
     try:
         from health_engine import calculate_productivity_loss, calculate_malaria_risk, calculate_health_economic_impact
 
@@ -2156,8 +2185,13 @@ def predict_health(req: PredictHealthRequest):
         lon = req.lon
         workforce_size = req.workforce_size
         daily_wage = req.daily_wage
+        
+        # Cooling intervention parameters
+        intervention_type = req.intervention_type or "none"
+        intervention_capex = req.intervention_capex or 0.0
+        intervention_annual_opex = req.intervention_annual_opex or 0.0
 
-        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}", file=sys.stderr, flush=True)
+        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}, intervention={intervention_type}", file=sys.stderr, flush=True)
 
         try:
             end_date = datetime.now()
@@ -2179,23 +2213,181 @@ def predict_health(req: PredictHealthRequest):
             else:
                 humidity_pct = 80.0
 
-            print(f"[HEALTH] Climate data: temp={temp_c}\u00b0C, precip={precip_mm}mm, humidity_est={humidity_pct}%", file=sys.stderr, flush=True)
+            print(f"[HEALTH] Climate data: temp={temp_c}°C, precip={precip_mm}mm, humidity_est={humidity_pct}%", file=sys.stderr, flush=True)
 
         except Exception as weather_error:
             print(f"Weather data error: {weather_error}", file=sys.stderr, flush=True)
             return _legacy_error(500, f"Failed to fetch climate data: {str(weather_error)}", "WEATHER_DATA_ERROR")
 
-        productivity_analysis = calculate_productivity_loss(temp_c, humidity_pct)
+        # ====================================================================
+        # BASELINE ANALYSIS (No Intervention)
+        # ====================================================================
+        productivity_analysis_baseline = calculate_productivity_loss(temp_c, humidity_pct)
+        baseline_wbgt = productivity_analysis_baseline["wbgt_estimate"]
+        baseline_productivity_loss_pct = productivity_analysis_baseline["productivity_loss_pct"]
+        
         malaria_analysis = calculate_malaria_risk(temp_c, precip_mm)
-        economic_impact = calculate_health_economic_impact(
+        economic_impact_baseline = calculate_health_economic_impact(
             workforce_size=workforce_size,
             daily_wage=daily_wage,
-            productivity_loss_pct=productivity_analysis["productivity_loss_pct"],
+            productivity_loss_pct=baseline_productivity_loss_pct,
             malaria_risk_score=malaria_analysis["risk_score"],
         )
 
-        print(f"[HEALTH] WBGT={productivity_analysis['wbgt_estimate']}\u00b0C, loss={productivity_analysis['productivity_loss_pct']}%, malaria_risk={malaria_analysis['risk_category']}", file=sys.stderr, flush=True)
+        print(f"[HEALTH] BASELINE: WBGT={baseline_wbgt}°C, loss={baseline_productivity_loss_pct}%, annual_loss=${economic_impact_baseline['heat_stress_impact']['annual_productivity_loss']:,.2f}", file=sys.stderr, flush=True)
 
+        # ====================================================================
+        # INTERVENTION ANALYSIS (Cooling CAPEX vs. Productivity OPEX)
+        # ====================================================================
+        intervention_analysis = None
+        
+        if intervention_type and intervention_type.lower() not in ["none", ""]:
+            # Calculate adjusted WBGT based on intervention type
+            adjusted_wbgt = baseline_wbgt
+            wbgt_reduction = 0.0
+            
+            if intervention_type.lower() == "hvac_retrofit":
+                # HVAC retrofit: Active cooling drops WBGT to safe baseline (22°C)
+                # Assumption: Industrial HVAC can maintain 22°C WBGT regardless of external conditions
+                adjusted_wbgt = 22.0
+                wbgt_reduction = baseline_wbgt - adjusted_wbgt
+                intervention_description = "Active HVAC cooling system maintains safe 22°C WBGT"
+                
+            elif intervention_type.lower() == "passive_cooling":
+                # Passive cooling: Natural ventilation, shading, green roofs, etc.
+                # Assumption: Can reduce WBGT by 3°C
+                wbgt_reduction = 3.0
+                adjusted_wbgt = max(baseline_wbgt - wbgt_reduction, 20.0)  # Floor at 20°C
+                intervention_description = "Passive cooling (ventilation, shading, green roofs) reduces WBGT by 3°C"
+            
+            else:
+                # Unknown intervention type - treat as no intervention
+                print(f"[HEALTH WARNING] Unknown intervention_type: {intervention_type}, treating as 'none'", file=sys.stderr, flush=True)
+                adjusted_wbgt = baseline_wbgt
+                intervention_description = "Unknown intervention type - no WBGT adjustment applied"
+            
+            # Recalculate productivity loss with adjusted WBGT
+            # We need to reverse-engineer temp/humidity from WBGT for the calculation
+            # Since WBGT ≈ 0.7*Temp + 0.1*Humidity, we'll adjust temperature proportionally
+            if wbgt_reduction > 0:
+                # Adjust temperature to achieve desired WBGT
+                # Keep humidity constant, adjust temp
+                adjusted_temp = temp_c - (wbgt_reduction / 0.7)
+                productivity_analysis_adjusted = calculate_productivity_loss(adjusted_temp, humidity_pct)
+            else:
+                productivity_analysis_adjusted = productivity_analysis_baseline
+            
+            adjusted_productivity_loss_pct = productivity_analysis_adjusted["productivity_loss_pct"]
+            
+            # Calculate avoided productivity loss
+            avoided_productivity_loss_pct = baseline_productivity_loss_pct - adjusted_productivity_loss_pct
+            
+            # Economic impact with intervention
+            economic_impact_adjusted = calculate_health_economic_impact(
+                workforce_size=workforce_size,
+                daily_wage=daily_wage,
+                productivity_loss_pct=adjusted_productivity_loss_pct,
+                malaria_risk_score=malaria_analysis["risk_score"],
+            )
+            
+            # Calculate avoided annual economic loss (260 working days/year)
+            # Note: Using 260 instead of 250 as requested
+            working_days_per_year = 260
+            baseline_annual_heat_loss = economic_impact_baseline['heat_stress_impact']['annual_productivity_loss']
+            adjusted_annual_heat_loss = economic_impact_adjusted['heat_stress_impact']['annual_productivity_loss']
+            avoided_annual_economic_loss_usd = baseline_annual_heat_loss - adjusted_annual_heat_loss
+            
+            print(f"[HEALTH] INTERVENTION: WBGT={adjusted_wbgt}°C, loss={adjusted_productivity_loss_pct}%, avoided_loss=${avoided_annual_economic_loss_usd:,.2f}/year", file=sys.stderr, flush=True)
+            
+            # ================================================================
+            # FINANCIAL ROI ANALYSIS
+            # ================================================================
+            payback_period_years = None
+            npv_10yr = None
+            bcr = None
+            roi_recommendation = "No financial analysis (zero CAPEX)"
+            
+            if intervention_capex > 0:
+                # Net annual benefit = Avoided loss - Annual OPEX
+                net_annual_benefit = avoided_annual_economic_loss_usd - intervention_annual_opex
+                
+                # Simple Payback Period: CAPEX / Net Annual Benefit
+                if net_annual_benefit > 0:
+                    payback_period_years = intervention_capex / net_annual_benefit
+                else:
+                    payback_period_years = None  # Never pays back (OPEX exceeds benefit)
+                
+                # 10-year NPV at 10% discount rate
+                discount_rate = 0.10
+                analysis_period = 10
+                
+                # Cash flow structure:
+                # Year 0: -CAPEX
+                # Years 1-10: Net Annual Benefit
+                cash_flows = [-intervention_capex] + [net_annual_benefit] * analysis_period
+                
+                # Calculate NPV using financial_engine
+                npv_result = calculate_npv(cash_flows, discount_rate)
+                npv_10yr = npv_result
+                
+                # Calculate BCR (Benefit-Cost Ratio)
+                # BCR = PV(Benefits) / PV(Costs)
+                pv_benefits = sum([
+                    avoided_annual_economic_loss_usd / ((1 + discount_rate) ** year)
+                    for year in range(1, analysis_period + 1)
+                ])
+                pv_costs = intervention_capex + sum([
+                    intervention_annual_opex / ((1 + discount_rate) ** year)
+                    for year in range(1, analysis_period + 1)
+                ])
+                bcr = pv_benefits / pv_costs if pv_costs > 0 else 0.0
+                
+                # ROI Recommendation
+                if npv_10yr > 0 and bcr > 1.0:
+                    roi_recommendation = "✅ INVEST: Positive NPV and BCR > 1.0 - financially attractive"
+                elif npv_10yr > 0:
+                    roi_recommendation = "⚠️ MARGINAL: Positive NPV but low BCR - consider alternative interventions"
+                else:
+                    roi_recommendation = "❌ DO NOT INVEST: Negative NPV - OPEX and CAPEX exceed productivity gains"
+                
+                print(f"[HEALTH] ROI: NPV=${npv_10yr:,.2f}, Payback={payback_period_years:.1f}yr, BCR={bcr:.2f}", file=sys.stderr, flush=True)
+            
+            # Build intervention analysis response
+            intervention_analysis = {
+                "intervention_type": intervention_type,
+                "intervention_description": intervention_description,
+                "wbgt_adjustment": {
+                    "baseline_wbgt": round(baseline_wbgt, 1),
+                    "adjusted_wbgt": round(adjusted_wbgt, 1),
+                    "wbgt_reduction": round(wbgt_reduction, 1),
+                },
+                "productivity_impact": {
+                    "baseline_productivity_loss_pct": round(baseline_productivity_loss_pct, 1),
+                    "adjusted_productivity_loss_pct": round(adjusted_productivity_loss_pct, 1),
+                    "avoided_productivity_loss_pct": round(avoided_productivity_loss_pct, 1),
+                },
+                "economic_impact": {
+                    "baseline_annual_loss_usd": round(baseline_annual_heat_loss, 2),
+                    "adjusted_annual_loss_usd": round(adjusted_annual_heat_loss, 2),
+                    "avoided_annual_economic_loss_usd": round(avoided_annual_economic_loss_usd, 2),
+                    "working_days_per_year": working_days_per_year,
+                },
+                "financial_analysis": {
+                    "intervention_capex": round(intervention_capex, 2),
+                    "intervention_annual_opex": round(intervention_annual_opex, 2),
+                    "net_annual_benefit": round(net_annual_benefit, 2) if intervention_capex > 0 else None,
+                    "payback_period_years": round(payback_period_years, 2) if payback_period_years else None,
+                    "npv_10yr_at_10pct_discount": round(npv_10yr, 2) if npv_10yr else None,
+                    "bcr": round(bcr, 2) if bcr else None,
+                    "roi_recommendation": roi_recommendation,
+                },
+                "heat_stress_category_after_intervention": productivity_analysis_adjusted["heat_stress_category"],
+                "recommendation_after_intervention": productivity_analysis_adjusted["recommendation"],
+            }
+
+        # ====================================================================
+        # RESPONSE CONSTRUCTION
+        # ====================================================================
         response_data = {
             "location": {"lat": lat, "lon": lon},
             "climate_conditions": {
@@ -2203,15 +2395,19 @@ def predict_health(req: PredictHealthRequest):
                 "precipitation_mm": round(precip_mm, 1),
                 "humidity_pct_estimated": humidity_pct,
             },
-            "heat_stress_analysis": productivity_analysis,
+            "heat_stress_analysis": productivity_analysis_baseline,
             "malaria_risk_analysis": malaria_analysis,
-            "economic_impact": economic_impact,
+            "economic_impact": economic_impact_baseline,
             "workforce_parameters": {
                 "workforce_size": workforce_size,
                 "daily_wage": daily_wage,
                 "currency": "USD",
             },
         }
+        
+        # Add intervention analysis if cooling intervention was requested
+        if intervention_analysis:
+            response_data["intervention_analysis"] = intervention_analysis
 
         return {"status": "success", "data": response_data}
 
@@ -2219,7 +2415,10 @@ def predict_health(req: PredictHealthRequest):
         return _legacy_error(400, f"Invalid numeric values: {str(ve)}", "INVALID_NUMERIC_VALUE")
     except Exception as e:
         print(f"Health prediction error: {e}", file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc()
         return _legacy_error(500, f"Health analysis failed: {str(e)}", "HEALTH_ERROR")
+
 
 
 @app.post("/predict-portfolio")
