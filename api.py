@@ -2256,7 +2256,17 @@ def predict_health(req: PredictHealthRequest):
         # ====================================================================
         intervention_analysis = None
         
-        if intervention_type and intervention_type.lower() not in ["none", ""]:
+        # Check if this is a private-sector workplace intervention (not public health)
+        private_sector_interventions = ["hvac_retrofit", "passive_cooling"]
+        public_sector_interventions = ["urban_cooling_center", "mosquito_eradication"]
+        
+        is_private_sector_intervention = (
+            intervention_type and 
+            intervention_type.lower() not in ["none", ""] and
+            intervention_type.lower() in private_sector_interventions
+        )
+        
+        if is_private_sector_intervention:
             # Calculate adjusted WBGT based on intervention type
             adjusted_wbgt = baseline_wbgt
             wbgt_reduction = 0.0
@@ -2274,12 +2284,6 @@ def predict_health(req: PredictHealthRequest):
                 wbgt_reduction = 3.0
                 adjusted_wbgt = max(baseline_wbgt - wbgt_reduction, 20.0)  # Floor at 20°C
                 intervention_description = "Passive cooling (ventilation, shading, green roofs) reduces WBGT by 3°C"
-            
-            else:
-                # Unknown intervention type - treat as no intervention
-                print(f"[HEALTH WARNING] Unknown intervention_type: {intervention_type}, treating as 'none'", file=sys.stderr, flush=True)
-                adjusted_wbgt = baseline_wbgt
-                intervention_description = "Unknown intervention type - no WBGT adjustment applied"
             
             # Recalculate productivity loss with adjusted WBGT
             # We need to reverse-engineer temp/humidity from WBGT for the calculation
@@ -2365,7 +2369,11 @@ def predict_health(req: PredictHealthRequest):
                 else:
                     roi_recommendation = "❌ DO NOT INVEST: Negative NPV - OPEX and CAPEX exceed productivity gains"
                 
-                print(f"[HEALTH] ROI: NPV=${npv_10yr:,.2f}, Payback={payback_period_years:.1f}yr, BCR={bcr:.2f}", file=sys.stderr, flush=True)
+                # Safe formatting for print statement (handle None values)
+                safe_npv = npv_10yr if npv_10yr is not None else 0.0
+                safe_payback = payback_period_years if payback_period_years is not None else 0.0
+                safe_bcr = bcr if bcr is not None else 0.0
+                print(f"[HEALTH] ROI: NPV=${safe_npv:,.2f}, Payback={safe_payback:.1f}yr, BCR={safe_bcr:.2f}", file=sys.stderr, flush=True)
             
             # Build intervention analysis response
             intervention_analysis = {
