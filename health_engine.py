@@ -220,3 +220,153 @@ def calculate_health_economic_impact(
             'per_worker_annual_loss': round(total_annual_loss / workforce_size, 2)
         }
     }
+
+
+def calculate_public_health_impact(
+    population: int,
+    gdp_per_capita: float,
+    wbgt: float,
+    malaria_risk_score: int,
+    intervention_type: str = "none"
+) -> Dict:
+    """
+    Calculate public health impact using DALYs (Disability-Adjusted Life Years).
+    
+    DALYs measure the burden of disease by combining years of life lost due to
+    premature mortality and years lived with disability. This function calculates
+    baseline DALYs from heat stress and malaria, applies intervention efficacy,
+    and monetizes the health benefit using WHO standard (GDP per capita × 2).
+    
+    Args:
+        population: Total population size
+        gdp_per_capita: GDP per capita in USD for monetization
+        wbgt: Wet Bulb Globe Temperature (°C)
+        malaria_risk_score: Malaria risk score (0-100)
+        intervention_type: Type of public health intervention
+            - "urban_cooling_center": Reduces heat DALYs by 40%
+            - "mosquito_eradication": Reduces malaria DALYs by 70%
+            - "none": No intervention (baseline only)
+    
+    Returns:
+        Dictionary with baseline DALYs, averted DALYs, and economic value
+    
+    References:
+        - WHO Global Health Estimates (GHE) 2019
+        - GBD 2019 (Global Burden of Disease Study)
+        - WHO-CHOICE cost-effectiveness thresholds
+    """
+    # ========================================================================
+    # SCIENTIFIC BASELINES (per 1,000 people)
+    # ========================================================================
+    # Source: WHO Global Health Estimates, heat-related mortality and morbidity
+    # Heatwave conditions (WBGT > 30°C) cause cardiovascular stress, heat stroke,
+    # respiratory complications, and exacerbate chronic conditions
+    BASELINE_HEAT_DALYS_PER_1000 = 1.82
+    
+    # Source: WHO GBD 2019, malaria burden in high-transmission areas
+    # Includes mortality (cerebral malaria, severe anemia) and morbidity
+    # (fever, weakness, organ damage, neurological sequelae)
+    BASELINE_MALARIA_DALYS_PER_1000 = 105.0
+    
+    # ========================================================================
+    # INTERVENTION EFFICACY
+    # ========================================================================
+    # Urban cooling centers: Provide air-conditioned refuge during heatwaves,
+    # reducing exposure to extreme heat for vulnerable populations (elderly, children)
+    URBAN_COOLING_CENTER_EFFICACY = 0.40  # 40% reduction in heat DALYs
+    
+    # Mosquito eradication: Indoor residual spraying, larviciding, vector control
+    # programs significantly reduce malaria transmission
+    MOSQUITO_ERADICATION_EFFICACY = 0.70  # 70% reduction in malaria DALYs
+    
+    # ========================================================================
+    # BASELINE DALY CALCULATION
+    # ========================================================================
+    # Calculate baseline heat-related DALYs
+    # Heat stress is triggered when WBGT > 26°C (ILO threshold)
+    if wbgt > 26.0:
+        # Scale heat DALYs based on WBGT severity
+        # At WBGT 26°C: minimal DALYs
+        # At WBGT 32°C+: maximum DALYs
+        heat_severity_factor = min((wbgt - 26.0) / 6.0, 1.0)  # 0.0 to 1.0
+        baseline_heat_dalys_per_1000 = BASELINE_HEAT_DALYS_PER_1000 * heat_severity_factor
+    else:
+        baseline_heat_dalys_per_1000 = 0.0
+    
+    # Calculate baseline malaria DALYs based on risk score
+    # Risk score 0-100 maps to 0-100% of baseline malaria burden
+    baseline_malaria_dalys_per_1000 = BASELINE_MALARIA_DALYS_PER_1000 * (malaria_risk_score / 100.0)
+    
+    # Total baseline DALYs per 1,000 people
+    baseline_dalys_per_1000 = baseline_heat_dalys_per_1000 + baseline_malaria_dalys_per_1000
+    
+    # Scale to actual population
+    baseline_dalys_lost = (baseline_dalys_per_1000 / 1000.0) * population
+    
+    # ========================================================================
+    # INTERVENTION EFFICACY APPLICATION
+    # ========================================================================
+    heat_reduction_factor = 0.0
+    malaria_reduction_factor = 0.0
+    intervention_description = "No intervention applied (baseline scenario)"
+    
+    intervention_lower = intervention_type.lower()
+    
+    if intervention_lower == "urban_cooling_center":
+        heat_reduction_factor = URBAN_COOLING_CENTER_EFFICACY
+        intervention_description = "Urban cooling centers reduce heat-related DALYs by 40%"
+    
+    elif intervention_lower == "mosquito_eradication":
+        malaria_reduction_factor = MOSQUITO_ERADICATION_EFFICACY
+        intervention_description = "Mosquito eradication programs reduce malaria DALYs by 70%"
+    
+    # Calculate post-intervention DALYs
+    post_intervention_heat_dalys = baseline_heat_dalys_per_1000 * (1 - heat_reduction_factor)
+    post_intervention_malaria_dalys = baseline_malaria_dalys_per_1000 * (1 - malaria_reduction_factor)
+    post_intervention_dalys_per_1000 = post_intervention_heat_dalys + post_intervention_malaria_dalys
+    
+    # Scale to actual population
+    post_intervention_dalys_lost = (post_intervention_dalys_per_1000 / 1000.0) * population
+    
+    # Calculate averted DALYs
+    dalys_averted = baseline_dalys_lost - post_intervention_dalys_lost
+    
+    # ========================================================================
+    # MONETIZATION (WHO Standard)
+    # ========================================================================
+    # WHO-CHOICE (CHOosing Interventions that are Cost-Effective) guidelines
+    # recommend valuing one DALY at 2× GDP per capita for cost-effectiveness analysis
+    # This represents the economic value of a healthy life year
+    value_per_daly = gdp_per_capita * 2.0
+    
+    # Calculate total economic value preserved
+    economic_value_preserved_usd = dalys_averted * value_per_daly
+    
+    # ========================================================================
+    # RETURN COMPREHENSIVE ANALYSIS
+    # ========================================================================
+    return {
+        'baseline_dalys_lost': round(baseline_dalys_lost, 2),
+        'post_intervention_dalys_lost': round(post_intervention_dalys_lost, 2),
+        'dalys_averted': round(dalys_averted, 2),
+        'economic_value_preserved_usd': round(economic_value_preserved_usd, 2),
+        'intervention_type': intervention_type,
+        'intervention_description': intervention_description,
+        'breakdown': {
+            'heat_dalys_per_1000_baseline': round(baseline_heat_dalys_per_1000, 2),
+            'malaria_dalys_per_1000_baseline': round(baseline_malaria_dalys_per_1000, 2),
+            'total_dalys_per_1000_baseline': round(baseline_dalys_per_1000, 2),
+            'heat_reduction_pct': round(heat_reduction_factor * 100, 1),
+            'malaria_reduction_pct': round(malaria_reduction_factor * 100, 1),
+        },
+        'monetization': {
+            'gdp_per_capita_usd': round(gdp_per_capita, 2),
+            'value_per_daly_usd': round(value_per_daly, 2),
+            'methodology': "WHO-CHOICE standard: 2× GDP per capita per DALY"
+        },
+        'population_parameters': {
+            'population_size': population,
+            'baseline_dalys_per_1000': round(baseline_dalys_per_1000, 2),
+            'post_intervention_dalys_per_1000': round(post_intervention_dalys_per_1000, 2)
+        }
+    }

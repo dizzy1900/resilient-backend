@@ -391,6 +391,17 @@ class PredictHealthRequest(BaseModel):
         ge=0, 
         description="Annual operating expenditure for cooling system in USD"
     )
+    # Public health (DALY) fields
+    population_size: Optional[int] = Field(
+        100000,
+        gt=0,
+        description="Population size for public health DALY calculations (default: 100,000)"
+    )
+    gdp_per_capita_usd: Optional[float] = Field(
+        8500.0,
+        gt=0,
+        description="GDP per capita in USD for DALY monetization (default: $8,500)"
+    )
 
 
 class PredictPortfolioLocation(BaseModel):
@@ -2179,7 +2190,7 @@ def predict_health(req: PredictHealthRequest):
     - none: No intervention (baseline scenario)
     """
     try:
-        from health_engine import calculate_productivity_loss, calculate_malaria_risk, calculate_health_economic_impact
+        from health_engine import calculate_productivity_loss, calculate_malaria_risk, calculate_health_economic_impact, calculate_public_health_impact
 
         lat = req.lat
         lon = req.lon
@@ -2190,8 +2201,12 @@ def predict_health(req: PredictHealthRequest):
         intervention_type = req.intervention_type or "none"
         intervention_capex = req.intervention_capex or 0.0
         intervention_annual_opex = req.intervention_annual_opex or 0.0
+        
+        # Public health (DALY) parameters
+        population_size = req.population_size or 100000
+        gdp_per_capita_usd = req.gdp_per_capita_usd or 8500.0
 
-        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}, intervention={intervention_type}", file=sys.stderr, flush=True)
+        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}, intervention={intervention_type}, population={population_size}, gdp_per_capita=${gdp_per_capita_usd}", file=sys.stderr, flush=True)
 
         try:
             end_date = datetime.now()
@@ -2386,6 +2401,22 @@ def predict_health(req: PredictHealthRequest):
             }
 
         # ====================================================================
+        # PUBLIC HEALTH DALY ANALYSIS
+        # ====================================================================
+        # Calculate public health impact using DALYs for population-level analysis
+        # This serves public sector users (governments, WHO, NGOs) who need to
+        # understand population health burden and cost-effectiveness of interventions
+        public_health_analysis = calculate_public_health_impact(
+            population=population_size,
+            gdp_per_capita=gdp_per_capita_usd,
+            wbgt=baseline_wbgt,
+            malaria_risk_score=malaria_analysis["risk_score"],
+            intervention_type=intervention_type  # Use same intervention type as cooling analysis
+        )
+        
+        print(f"[HEALTH] PUBLIC HEALTH: baseline_dalys={public_health_analysis['baseline_dalys_lost']}, averted={public_health_analysis['dalys_averted']}, value=${public_health_analysis['economic_value_preserved_usd']:,.2f}", file=sys.stderr, flush=True)
+
+        # ====================================================================
         # RESPONSE CONSTRUCTION
         # ====================================================================
         response_data = {
@@ -2403,6 +2434,7 @@ def predict_health(req: PredictHealthRequest):
                 "daily_wage": daily_wage,
                 "currency": "USD",
             },
+            "public_health_analysis": public_health_analysis,
         }
         
         # Add intervention analysis if cooling intervention was requested
