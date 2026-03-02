@@ -253,43 +253,43 @@ def _generate_coastal_summary(location_name: str, data: Dict[str, Any]) -> str:
     Generate executive summary for coastal flood risk analysis.
     
     Expected data keys:
-    - slr_projection: float
-    - annual_damage_usd: float
-    - intervention_type: str
-    - damage_reduction_pct: float (optional)
+    - intervention_capex or capex: float
+    - avoided_damage_usd or avoided_loss: float
     """
     try:
-        slr = data.get('slr_projection', 0.0)
-        annual_damage = data.get('annual_damage_usd', 0.0)
-        intervention = data.get('intervention_type', 'none')
-        damage_reduction = data.get('damage_reduction_pct', 0.0)
+        # 1. Forcefully extract the nested data
+        coastal_data = data.get('data', data) if isinstance(data.get('data'), dict) else data
         
-        # Sentence 1: Sea level rise context
-        slr_cm = slr * 100  # Convert meters to cm
-        sentence1 = f"{location_name} coastal infrastructure faces {slr_cm:.0f}cm of projected sea level rise, significantly increasing flood risk."
+        try:
+            capex = float(coastal_data.get('intervention_capex', coastal_data.get('capex', 0)))
+            avoided_damage = float(coastal_data.get('avoided_damage_usd', coastal_data.get('avoided_loss', 0)))
+        except (ValueError, TypeError):
+            capex, avoided_damage = 0.0, 0.0
         
-        # Sentence 2: Damage assessment
-        if annual_damage >= 1e6:
-            damage_display = f"${annual_damage/1e6:.1f}M"
+        # 2. Format currency strings
+        if avoided_damage >= 1_000_000:
+            damage_str = f"${avoided_damage / 1_000_000:.1f} million"
         else:
-            damage_display = f"${annual_damage:,.0f}"
-        sentence2 = f"Without intervention, annual flood damage is projected at {damage_display}."
+            damage_str = f"${avoided_damage:,.0f}"
         
-        # Sentence 3: Intervention recommendation
-        intervention_names = {
-            'sea_wall': 'sea wall construction',
-            'mangrove_restoration': 'mangrove restoration',
-            'raised_foundation': 'raised foundation infrastructure',
-            'none': 'adaptation measures'
-        }
-        intervention_display = intervention_names.get(intervention.lower(), intervention)
-        
-        if damage_reduction > 0:
-            sentence3 = f"Implementing {intervention_display} can reduce annual damages by {damage_reduction:.0f}%, providing critical infrastructure protection."
+        if capex >= 1_000_000:
+            capex_str = f"${capex / 1_000_000:.1f} million"
         else:
-            sentence3 = f"Coastal adaptation measures such as {intervention_display} are recommended to mitigate flood risk."
+            capex_str = f"${capex:,.0f}"
         
-        return f"{sentence1} {sentence2} {sentence3}"
+        # 3. Build the sentences
+        sentence_1 = f"{location_name} faces critical asset exposure from projected sea-level rise and coastal inundation hazards."
+        
+        if avoided_damage > 0.0:
+            sentence_2 = f"Implementing the proposed coastal defense infrastructure requires a capital expenditure of {capex_str}."
+            sentence_3 = f"This adaptation secures {damage_str} in avoided structural damage, effectively safeguarding long-term asset value."
+        else:
+            sentence_2 = "Without targeted seawall or coastal defense investments, waterfront assets remain highly vulnerable to storm surges."
+            sentence_3 = "Please utilize the dashboard to model specific physical interventions to mitigate these projected physical risks."
+        
+        summary_text = f"{sentence_1} {sentence_2} {sentence_3}"
+        
+        return summary_text
     
     except Exception as e:
         return _generate_fallback_summary(location_name)
@@ -300,43 +300,47 @@ def _generate_flood_summary(location_name: str, data: Dict[str, Any]) -> str:
     Generate executive summary for urban/flash flood risk analysis.
     
     Expected data keys:
-    - flood_depth_meters: float
-    - annual_damage_usd: float
-    - intervention_type: str
-    - damage_reduction_pct: float (optional)
+    - intervention_capex or capex: float
+    - analysis.avoided_loss or avoided_loss: float (nested in analysis dict)
     """
     try:
-        flood_depth = data.get('flood_depth_meters', 0.0)
-        annual_damage = data.get('annual_damage_usd', 0.0)
-        intervention = data.get('intervention_type', 'none')
-        damage_reduction = data.get('damage_reduction_pct', 0.0)
+        # 1. Forcefully extract the nested data
+        flood_data = data.get('data', data) if isinstance(data.get('data'), dict) else data
         
-        # Sentence 1: Flood context
-        depth_cm = flood_depth * 100
-        sentence1 = f"{location_name} faces urban flooding with projected depths of {depth_cm:.0f}cm during extreme rainfall events."
+        # Dig into the analysis dictionary where the metrics live
+        analysis_data = flood_data.get('analysis', {})
         
-        # Sentence 2: Economic impact
-        if annual_damage >= 1e6:
-            damage_display = f"${annual_damage/1e6:.1f}M"
+        try:
+            capex = float(flood_data.get('intervention_capex', flood_data.get('capex', 0)))
+            # Check both analysis dict and root for avoided_loss
+            avoided_loss = float(analysis_data.get('avoided_loss', flood_data.get('avoided_loss', 0)))
+        except (ValueError, TypeError):
+            capex, avoided_loss = 0.0, 0.0
+        
+        # 2. Format currency strings
+        if avoided_loss >= 1_000_000:
+            loss_str = f"${avoided_loss / 1_000_000:.1f} million"
         else:
-            damage_display = f"${annual_damage:,.0f}"
-        sentence2 = f"Annual flood-related damages are estimated at {damage_display}, impacting critical infrastructure and business operations."
+            loss_str = f"${avoided_loss:,.0f}"
         
-        # Sentence 3: Intervention recommendation
-        intervention_names = {
-            'sponge_city': 'sponge city infrastructure (permeable surfaces, rain gardens)',
-            'drainage_upgrade': 'drainage system upgrades',
-            'green_infrastructure': 'green infrastructure solutions',
-            'none': 'flood mitigation measures'
-        }
-        intervention_display = intervention_names.get(intervention.lower(), intervention)
-        
-        if damage_reduction > 0:
-            sentence3 = f"Deploying {intervention_display} can reduce flood damages by {damage_reduction:.0f}%, representing a cost-effective resilience investment."
+        if capex >= 1_000_000:
+            capex_str = f"${capex / 1_000_000:.1f} million"
         else:
-            sentence3 = f"Investment in {intervention_display} is recommended to build urban flood resilience."
+            capex_str = f"${capex:,.0f}"
         
-        return f"{sentence1} {sentence2} {sentence3}"
+        # 3. Build the sentences
+        sentence_1 = f"{location_name} is highly vulnerable to extreme precipitation events and subsequent localized flooding."
+        
+        if avoided_loss > 0.0:
+            sentence_2 = f"Deploying the specified flood mitigation assets requires an upfront investment of {capex_str}."
+            sentence_3 = f"This resilience measure preserves {loss_str} in avoided economic disruption and physical property damage."
+        else:
+            sentence_2 = "Without robust stormwater management or floodgate installations, local operations face severe operational downtime risks."
+            sentence_3 = "Please utilize the dashboard to calculate the ROI of specific flood mitigation scenarios."
+        
+        summary_text = f"{sentence_1} {sentence_2} {sentence_3}"
+        
+        return summary_text
     
     except Exception as e:
         return _generate_fallback_summary(location_name)
