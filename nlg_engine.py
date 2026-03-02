@@ -260,9 +260,15 @@ def _generate_coastal_summary(location_name: str, data: Dict[str, Any]) -> str:
         # 1. Forcefully extract the nested data
         coastal_data = data.get('data', data) if isinstance(data.get('data'), dict) else data
         
+        # Dig into the analysis dictionary where the metrics likely live
+        analysis_data = coastal_data.get('analysis', {})
+        
         try:
-            capex = float(coastal_data.get('intervention_capex', coastal_data.get('capex', 0)))
-            avoided_damage = float(coastal_data.get('avoided_damage_usd', coastal_data.get('avoided_loss', 0)))
+            # Check both analysis dict and root for capex and avoided damage
+            capex = float(analysis_data.get('intervention_capex', coastal_data.get('intervention_capex', coastal_data.get('capex', 0))))
+            
+            # Check for multiple possible naming conventions
+            avoided_damage = float(analysis_data.get('avoided_loss', analysis_data.get('avoided_damage_usd', coastal_data.get('avoided_damage_usd', coastal_data.get('avoided_loss', 0)))))
         except (ValueError, TypeError):
             capex, avoided_damage = 0.0, 0.0
         

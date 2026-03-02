@@ -77,6 +77,41 @@ def test_coastal_nested_data():
     print("\n✅ PASSED - Nested data extraction worked!")
 
 
+def test_coastal_nested_analysis():
+    """Test coastal summary with data nested in analysis dict (like flood module)"""
+    print("\n" + "="*80)
+    print("TEST: Coastal with Analysis Dict (Deep Nested)")
+    print("="*80)
+    
+    data = {
+        'analysis': {
+            'avoided_loss': 20000000,
+            'intervention_capex': 4000000
+        }
+    }
+    
+    summary = generate_deterministic_summary(
+        module_name='coastal',
+        location_name='New York Harbor',
+        data=data
+    )
+    
+    print(f"Location: New York Harbor")
+    print(f"\nExtracted Data (nested in analysis):")
+    print(f"  - CAPEX: ${data['analysis']['intervention_capex']:,}")
+    print(f"  - Avoided Loss: ${data['analysis']['avoided_loss']:,}")
+    print(f"\nGenerated Summary:")
+    print(summary)
+    
+    # Assertions
+    assert "New York Harbor" in summary, "Should mention location"
+    assert "$4.0 million" in summary, "Should extract CAPEX from analysis dict"
+    assert "$20.0 million" in summary, "Should extract avoided loss from analysis dict"
+    assert "avoided structural damage" in summary, "Should show intervention sentence"
+    
+    print("\n✅ PASSED - Deep nested analysis extraction worked!")
+
+
 def test_coastal_no_intervention():
     """Test coastal summary when no intervention is modeled"""
     print("\n" + "="*80)
@@ -256,6 +291,7 @@ if __name__ == '__main__':
     # Coastal tests
     test_coastal_with_intervention()
     test_coastal_nested_data()
+    test_coastal_nested_analysis()
     test_coastal_no_intervention()
     
     # Flood tests
@@ -267,6 +303,6 @@ if __name__ == '__main__':
     print("\n" + "="*80)
     print("TEST SUMMARY")
     print("="*80)
-    print("Passed: 7/7")
-    print("Failed: 0/7")
+    print("Passed: 8/8")
+    print("Failed: 0/8")
     print("\n✅ ALL COASTAL AND FLOOD TESTS PASSED\n")
