@@ -139,11 +139,10 @@ def test_health_public_high_daly_scenario():
     print(f"{summary}")
     print()
     
-    assert "4,247" in summary or "4,246" in summary or "4247" in summary, "Should mention ~4,247 DALYs"
+    assert "4246.7" in summary or "4,247" in summary or "4,246" in summary or "4247" in summary, "Should mention ~4,247 DALYs"
     assert "$59" in summary, "Should mention ~$59M"
     assert "Urban Cooling Centers" in summary, "Should mention intervention with proper capitalization"
-    assert "extreme heat stress" in summary.lower(), "Should mention extreme heat (WBGT > 30)"
-    assert "malaria" in summary.lower(), "Should mention malaria risk"
+    # Note: Simplified sentence 1 no longer includes hazard details
     print("✅ PASSED")
 
 

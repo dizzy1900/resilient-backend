@@ -84,113 +84,44 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         "public_health_analysis": {
             "dalys_averted": float,
             "economic_value_preserved_usd": float,
-            "intervention_type": str,
-            "intervention_description": str,
-            "baseline_dalys_lost": float
-        },
-        "heat_stress_analysis": {
-            "wbgt_estimate": float
-        },
-        "malaria_risk_analysis": {
-            "risk_score": int
+            "intervention_type": str
         }
     }
     """
     try:
-        # ====================================================================
-        # STEP 1: EXTRACT DATA FROM NESTED STRUCTURE
-        # ====================================================================
-        # Extract nested public_health_analysis data
+        # 1. Extract the nested data
         public_health_data = data.get('public_health_analysis', {})
-        dalys_averted = public_health_data.get('dalys_averted', 0.0)
-        economic_value = public_health_data.get('economic_value_preserved_usd', 0.0)
-        raw_intervention = public_health_data.get('intervention_type', 'none')
-        baseline_dalys = public_health_data.get('baseline_dalys_lost', 0.0)
+        dalys_averted = public_health_data.get('dalys_averted', 0)
+        economic_value = public_health_data.get('economic_value_preserved_usd', 0)
+        raw_intervention = public_health_data.get('intervention_type', '')
         
-        # Extract climate data from other top-level keys
-        heat_stress = data.get('heat_stress_analysis', {})
-        wbgt = heat_stress.get('wbgt_estimate', None)
-        
-        malaria_risk_data = data.get('malaria_risk_analysis', {})
-        malaria_risk = malaria_risk_data.get('risk_score', 0)
-        
-        # Sentence 1: Hazard context
-        hazards = []
-        if wbgt and wbgt > 30.0:
-            hazards.append("extreme heat stress")
-        elif wbgt and wbgt > 26.0:
-            hazards.append("heat stress")
-        
-        if malaria_risk >= 75:
-            hazards.append("high malaria transmission risk")
-        elif malaria_risk >= 25:
-            hazards.append("moderate malaria risk")
-        
-        if hazards:
-            hazard_text = " and ".join(hazards)
-            sentence1 = f"{location_name} faces severe economic disruption from projected climate hazards including {hazard_text}."
+        # 2. Format the intervention string
+        if raw_intervention == 'urban_cooling_center':
+            intervention_text = "Urban Cooling Centers"
+        elif raw_intervention == 'mosquito_eradication':
+            intervention_text = "Mosquito Eradication"
         else:
-            sentence1 = f"{location_name} faces economic disruption from projected climate hazards."
+            intervention_text = "targeted interventions"
         
-        # ====================================================================
-        # STEP 2: MAP INTERVENTION TYPE TO READABLE STRING
-        # ====================================================================
-        # Map backend intervention types to readable frontend strings
-        intervention_names = {
-            'urban_cooling_center': 'Urban Cooling Centers',
-            'mosquito_eradication': 'Mosquito Eradication',
-            'hvac_retrofit': 'HVAC Cooling Systems',
-            'passive_cooling': 'Passive Cooling Interventions',
-            'none': 'no intervention',
-            '': 'no intervention'
-        }
-        
-        # Get mapped intervention display name (case-insensitive lookup)
-        mapped_intervention = intervention_names.get(raw_intervention.lower().strip(), None)
-        
-        if mapped_intervention is None:
-            # Format raw intervention_type by replacing underscores and title casing
-            mapped_intervention = raw_intervention.replace('_', ' ').title()
-            if mapped_intervention.lower() == 'none':
-                mapped_intervention = 'no intervention'
-        
-        # ====================================================================
-        # STEP 3: BUILD SENTENCE 2 (INTERVENTION IMPACT)
-        # ====================================================================
-        # Generate sentence based on whether we have a real intervention with DALYs averted
-        has_valid_intervention = (
-            dalys_averted > 0 and 
-            mapped_intervention and 
-            mapped_intervention.lower() not in ['no intervention', 'none', '']
-        )
-        
-        if has_valid_intervention:
-            # Show specific DALY reduction from intervention
-            dalys_formatted = f"{dalys_averted:,.1f}"
-            sentence2 = f"Implementing {mapped_intervention} will avert {dalys_formatted} Disability-Adjusted Life Years (DALYs)."
-        elif baseline_dalys > 0:
-            # Show baseline burden when no intervention
-            baseline_formatted = f"{baseline_dalys:,.0f}"
-            sentence2 = f"The baseline health burden is {baseline_formatted} DALYs lost annually without intervention."
+        # 3. Format the economic value (convert to millions)
+        if economic_value >= 1_000_000:
+            econ_str = f"${economic_value / 1_000_000:.1f} million"
         else:
-            # Fallback for edge case (no intervention and no baseline)
-            sentence2 = "Climate health risks require assessment and intervention planning."
+            econ_str = f"${economic_value:,.0f}"
         
-        # Sentence 3: Economic value and recommendation
-        if economic_value > 0:
-            # Format large numbers with M/B suffixes
-            if economic_value >= 1e9:
-                value_display = f"${economic_value/1e9:.1f} billion"
-            elif economic_value >= 1e6:
-                value_display = f"${economic_value/1e6:.1f} million"
-            else:
-                value_display = f"${economic_value:,.0f}"
-            
-            sentence3 = f"This preserves {value_display} in macroeconomic value, making it a highly favorable public sector investment."
+        # 4. Build the sentences
+        sentence_1 = f"{location_name} faces economic disruption from projected climate hazards."
+        
+        if dalys_averted > 0 and raw_intervention in ['urban_cooling_center', 'mosquito_eradication']:
+            sentence_2 = f"Implementing {intervention_text} will avert {dalys_averted:.1f} Disability-Adjusted Life Years (DALYs)."
         else:
-            sentence3 = "Please refer to the quantitative metrics provided in the dashboard for detailed cost-benefit analysis."
+            sentence_2 = "Climate health risks require assessment and intervention planning."
         
-        return f"{sentence1} {sentence2} {sentence3}"
+        sentence_3 = f"This preserves {econ_str} in macroeconomic value, making it a highly favorable public sector investment."
+        
+        summary_text = f"{sentence_1} {sentence_2} {sentence_3}"
+        
+        return summary_text
     
     except Exception as e:
         # Graceful degradation on parsing errors
