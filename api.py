@@ -41,6 +41,7 @@ from lifespan_depreciation import (
     flood_has_intervention_rescue,
 )
 from price_shock_engine import calculate_price_shock
+from nlg_engine import generate_deterministic_summary
 
 import math
 import pickle
@@ -432,6 +433,21 @@ class PriceShockResponse(BaseModel):
     elasticity: float = Field(..., description="Supply elasticity coefficient used")
     forward_contract_recommendation: str = Field(..., description="Risk management advice")
     revenue_impact: Dict[str, float] = Field(..., description="Net revenue change analysis")
+
+
+class ExecutiveSummaryRequest(BaseModel):
+    """Request for deterministic NLG executive summary generation."""
+    module_name: str = Field(
+        ..., 
+        description="Module identifier: health_public, health_private, agriculture, coastal, flood, price_shock"
+    )
+    location_name: str = Field(..., description="Geographic location name for summary context")
+    simulation_data: Dict[str, Any] = Field(..., description="Module-specific simulation results dictionary")
+
+
+class ExecutiveSummaryResponse(BaseModel):
+    """Response containing generated executive summary."""
+    summary_text: str = Field(..., description="3-sentence executive summary generated from simulation data")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -2677,6 +2693,81 @@ def price_shock(req: PriceShockRequest) -> dict:
     except Exception as e:
         # Unexpected errors
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/ai/executive-summary", response_model=ExecutiveSummaryResponse)
+def executive_summary(req: ExecutiveSummaryRequest) -> dict:
+    """Generate deterministic executive summary using NLG templates.
+    
+    This endpoint generates executive summaries using deterministic Python f-strings
+    to avoid LLM token costs and hallucination risks. All text is template-based
+    with dynamic value insertion.
+    
+    Zero LLM Calls:
+    - No ChatGPT, Claude, or other LLM APIs
+    - No hallucination risk
+    - Instant response (no API latency)
+    - Zero per-request costs
+    
+    Supported Modules:
+    - health_public: Public health DALY analysis (population-level)
+    - health_private: Private sector workplace cooling CBA
+    - agriculture: Crop yield and revenue analysis
+    - coastal: Coastal flood risk and infrastructure
+    - flood: Urban/flash flood risk
+    - price_shock: Commodity price shock from climate stress
+    
+    Response Format:
+    - Exactly 3 sentences
+    - Sentence 1: Context and hazard description
+    - Sentence 2: Intervention/impact quantification
+    - Sentence 3: Economic value and recommendation
+    
+    Example Request:
+    {
+        "module_name": "health_public",
+        "location_name": "Bangkok",
+        "simulation_data": {
+            "dalys_averted": 4107.0,
+            "economic_value_preserved_usd": 98568000.0,
+            "intervention_type": "urban_cooling_center",
+            "wbgt_estimate": 30.8,
+            "malaria_risk_score": 100
+        }
+    }
+    
+    Example Response:
+    {
+        "summary_text": "Bangkok faces severe economic disruption from projected 
+        climate hazards including extreme heat stress and high malaria transmission 
+        risk. Implementing urban cooling centers will avert 4,107 Disability-Adjusted 
+        Life Years (DALYs). This preserves $98.6 million in macroeconomic value, 
+        making it a highly favorable public sector investment."
+    }
+    
+    Fallback Behavior:
+    - If module is unknown or data parsing fails, returns generic fallback message
+    - No errors thrown - always returns valid summary text
+    - Graceful degradation ensures robustness
+    """
+    try:
+        # Generate summary using deterministic NLG
+        summary_text = generate_deterministic_summary(
+            module_name=req.module_name,
+            location_name=req.location_name,
+            data=req.simulation_data
+        )
+        
+        return {
+            "summary_text": summary_text
+        }
+    
+    except Exception as e:
+        # Fallback to generic message if NLG fails
+        fallback = f"Data successfully processed for {req.location_name}. Please refer to the quantitative metrics provided in the dashboard for detailed ROI analysis."
+        return {
+            "summary_text": fallback
+        }
 
 
 def main() -> None:
