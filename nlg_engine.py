@@ -252,40 +252,27 @@ def _generate_coastal_summary(location_name: str, data: Dict[str, Any]) -> str:
     """
     Generate executive summary for coastal flood risk analysis.
     
-    Expected data keys:
-    - intervention_capex or capex: float
-    - avoided_damage_usd or avoided_loss: float
+    Uses recursive deep_find to locate data anywhere in the JSON structure.
     """
     try:
-        # 1. Forcefully extract the nested data
-        coastal_data = data.get('data', data) if isinstance(data.get('data'), dict) else data
-        analysis_data = coastal_data.get('analysis', {})
+        # 1. The Ultimate Nested-Data Hunter
+        def deep_find(d, key):
+            if isinstance(d, dict):
+                if key in d and d[key] is not None: return d[key]
+                for v in d.values():
+                    res = deep_find(v, key)
+                    if res is not None: return res
+            return None
         
-        # 2. Safely extract Avoided Loss ONLY
-        try:
-            loss_val = analysis_data.get('avoided_loss', 
-                                        analysis_data.get('avoided_damage_usd',
-                                        coastal_data.get('avoided_loss', 
-                                        coastal_data.get('avoided_damage_usd', 0))))
-            avoided_damage = float(0 if loss_val is None else loss_val)
-        except (ValueError, TypeError):
-            avoided_damage = 0.0
+        # 2. Aggressively extract variables from anywhere in the payload
+        avoided_damage = float(deep_find(data, 'avoided_loss') or deep_find(data, 'avoided_damage_usd') or 0.0)
+        capex = float(deep_find(data, 'intervention_capex') or deep_find(data, 'capex') or 0.0)
         
-        # 3. Safely extract Capex ONLY
-        try:
-            capex_val = analysis_data.get('intervention_capex',
-                                         analysis_data.get('capex',
-                                         coastal_data.get('intervention_capex', 
-                                         coastal_data.get('capex', 0))))
-            capex = float(0 if capex_val is None else capex_val)
-        except (ValueError, TypeError):
-            capex = 0.0
-        
-        # 4. Format currency strings
+        # 3. Format currency
         damage_str = f"${avoided_damage / 1_000_000:.1f} million" if avoided_damage >= 1_000_000 else f"${avoided_damage:,.0f}"
         capex_str = f"${capex / 1_000_000:.1f} million" if capex >= 1_000_000 else f"${capex:,.0f}"
         
-        # 5. Build the sentences dynamically based on available data
+        # 4. Build the sentences dynamically
         sentence_1 = f"{location_name} faces critical asset exposure from projected sea-level rise and coastal inundation hazards."
         
         if avoided_damage > 0.0:
@@ -293,7 +280,6 @@ def _generate_coastal_summary(location_name: str, data: Dict[str, Any]) -> str:
                 sentence_2 = f"Implementing the proposed coastal defense infrastructure requires a capital expenditure of {capex_str}."
                 sentence_3 = f"This adaptation secures {damage_str} in avoided structural damage, effectively safeguarding long-term asset value."
             else:
-                # Fallback if Capex is missing but Avoided Loss exists
                 sentence_2 = f"Implementing the proposed coastal defense infrastructure secures {damage_str} in avoided structural damage."
                 sentence_3 = "This adaptation effectively safeguards long-term asset value and reduces operational downtime."
         else:
@@ -312,41 +298,36 @@ def _generate_flood_summary(location_name: str, data: Dict[str, Any]) -> str:
     """
     Generate executive summary for urban/flash flood risk analysis.
     
-    Expected data keys:
-    - intervention_capex or capex: float
-    - analysis.avoided_loss or avoided_loss: float (nested in analysis dict)
+    Uses recursive deep_find to locate data anywhere in the JSON structure.
     """
     try:
-        # 1. Forcefully extract the nested data
-        flood_data = data.get('data', data) if isinstance(data.get('data'), dict) else data
+        # 1. The Ultimate Nested-Data Hunter
+        def deep_find(d, key):
+            if isinstance(d, dict):
+                if key in d and d[key] is not None: return d[key]
+                for v in d.values():
+                    res = deep_find(v, key)
+                    if res is not None: return res
+            return None
         
-        # Dig into the analysis dictionary where the metrics live
-        analysis_data = flood_data.get('analysis', {})
+        # 2. Aggressively extract variables from anywhere in the payload
+        avoided_loss = float(deep_find(data, 'avoided_loss') or deep_find(data, 'avoided_loss_usd') or 0.0)
+        capex = float(deep_find(data, 'intervention_capex') or deep_find(data, 'capex') or 0.0)
         
-        try:
-            capex = float(flood_data.get('intervention_capex', flood_data.get('capex', 0)))
-            # Check both analysis dict and root for avoided_loss
-            avoided_loss = float(analysis_data.get('avoided_loss', flood_data.get('avoided_loss', 0)))
-        except (ValueError, TypeError):
-            capex, avoided_loss = 0.0, 0.0
+        # 3. Format currency
+        loss_str = f"${avoided_loss / 1_000_000:.1f} million" if avoided_loss >= 1_000_000 else f"${avoided_loss:,.0f}"
+        capex_str = f"${capex / 1_000_000:.1f} million" if capex >= 1_000_000 else f"${capex:,.0f}"
         
-        # 2. Format currency strings
-        if avoided_loss >= 1_000_000:
-            loss_str = f"${avoided_loss / 1_000_000:.1f} million"
-        else:
-            loss_str = f"${avoided_loss:,.0f}"
-        
-        if capex >= 1_000_000:
-            capex_str = f"${capex / 1_000_000:.1f} million"
-        else:
-            capex_str = f"${capex:,.0f}"
-        
-        # 3. Build the sentences
+        # 4. Build the sentences dynamically
         sentence_1 = f"{location_name} is highly vulnerable to extreme precipitation events and subsequent localized flooding."
         
         if avoided_loss > 0.0:
-            sentence_2 = f"Deploying the specified flood mitigation assets requires an upfront investment of {capex_str}."
-            sentence_3 = f"This resilience measure preserves {loss_str} in avoided economic disruption and physical property damage."
+            if capex > 0:
+                sentence_2 = f"Deploying the specified flood mitigation assets requires an upfront investment of {capex_str}."
+                sentence_3 = f"This resilience measure preserves {loss_str} in avoided economic disruption and physical property damage."
+            else:
+                sentence_2 = f"Deploying the specified flood mitigation assets preserves {loss_str} in avoided economic disruption and physical property damage."
+                sentence_3 = "This resilience measure provides substantial protection against localized inundation risks."
         else:
             sentence_2 = "Without robust stormwater management or floodgate installations, local operations face severe operational downtime risks."
             sentence_3 = "Please utilize the dashboard to calculate the ROI of specific flood mitigation scenarios."

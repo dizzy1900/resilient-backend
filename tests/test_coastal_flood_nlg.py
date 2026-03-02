@@ -282,6 +282,94 @@ def test_flood_no_intervention():
     print("\n✅ PASSED")
 
 
+def test_coastal_extreme_nesting():
+    """Test coastal with extreme unpredictable nesting (recursive search)"""
+    print("\n" + "="*80)
+    print("TEST: Coastal with Extreme Unpredictable Nesting")
+    print("="*80)
+    
+    # Simulate frontend sending data in deeply nested, unpredictable structure
+    data = {
+        'results': {
+            'simulation': {
+                'financial_metrics': {
+                    'avoided_loss': 50000000
+                }
+            }
+        },
+        'metadata': {
+            'costs': {
+                'intervention_capex': 8000000
+            }
+        }
+    }
+    
+    summary = generate_deterministic_summary(
+        module_name='coastal',
+        location_name='Boston Harbor',
+        data=data
+    )
+    
+    print(f"Location: Boston Harbor")
+    print(f"\nExtracted Data (extreme nesting):")
+    print(f"  - Avoided Loss buried in: results.simulation.financial_metrics.avoided_loss")
+    print(f"  - CAPEX buried in: metadata.costs.intervention_capex")
+    print(f"\nGenerated Summary:")
+    print(summary)
+    
+    # Assertions
+    assert "Boston Harbor" in summary, "Should mention location"
+    assert "$8.0 million" in summary, "Should recursively find CAPEX"
+    assert "$50.0 million" in summary, "Should recursively find avoided loss"
+    assert "avoided structural damage" in summary, "Should show intervention sentence"
+    
+    print("\n✅ PASSED - Recursive search found data in unpredictable nested structure!")
+
+
+def test_flood_extreme_nesting():
+    """Test flood with extreme unpredictable nesting (recursive search)"""
+    print("\n" + "="*80)
+    print("TEST: Flood with Extreme Unpredictable Nesting")
+    print("="*80)
+    
+    # Simulate frontend sending data in deeply nested, unpredictable structure
+    data = {
+        'output': {
+            'risk_analysis': {
+                'economic_impact': {
+                    'avoided_loss': 35000000
+                }
+            }
+        },
+        'input': {
+            'parameters': {
+                'capex': 5500000
+            }
+        }
+    }
+    
+    summary = generate_deterministic_summary(
+        module_name='flood',
+        location_name='Chicago',
+        data=data
+    )
+    
+    print(f"Location: Chicago")
+    print(f"\nExtracted Data (extreme nesting):")
+    print(f"  - Avoided Loss buried in: output.risk_analysis.economic_impact.avoided_loss")
+    print(f"  - CAPEX buried in: input.parameters.capex")
+    print(f"\nGenerated Summary:")
+    print(summary)
+    
+    # Assertions
+    assert "Chicago" in summary, "Should mention location"
+    assert "$5.5 million" in summary, "Should recursively find CAPEX"
+    assert "$35.0 million" in summary, "Should recursively find avoided loss"
+    assert "avoided economic disruption" in summary, "Should show intervention sentence"
+    
+    print("\n✅ PASSED - Recursive search found data in unpredictable nested structure!")
+
+
 def test_flood_type_casting():
     """Test flood module handles string numbers in nested structure"""
     print("\n" + "="*80)
@@ -337,9 +425,13 @@ if __name__ == '__main__':
     test_flood_no_intervention()
     test_flood_type_casting()
     
+    # Extreme nesting tests
+    test_coastal_extreme_nesting()
+    test_flood_extreme_nesting()
+    
     print("\n" + "="*80)
     print("TEST SUMMARY")
     print("="*80)
-    print("Passed: 9/9")
-    print("Failed: 0/9")
+    print("Passed: 11/11")
+    print("Failed: 0/11")
     print("\n✅ ALL COASTAL AND FLOOD TESTS PASSED\n")
