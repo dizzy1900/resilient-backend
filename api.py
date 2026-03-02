@@ -380,7 +380,7 @@ class PredictHealthRequest(BaseModel):
     # Cooling intervention fields
     intervention_type: Optional[str] = Field(
         None, 
-        description="Cooling intervention type: 'hvac_retrofit', 'passive_cooling', or 'none'"
+        description="Cooling intervention type: 'hvac_retrofit', 'passive_cooling', 'hospital_expansion', 'urban_cooling_center', 'mosquito_eradication', or 'none'"
     )
     intervention_capex: Optional[float] = Field(
         None, 
@@ -402,6 +402,21 @@ class PredictHealthRequest(BaseModel):
         8500.0,
         gt=0,
         description="GDP per capita in USD for DALY monetization (default: $8,500)"
+    )
+    # Healthcare Infrastructure Stress Testing fields
+    economy_tier: Optional[str] = Field(
+        "middle",
+        description="Economic development tier: 'high', 'middle', or 'low' (default: 'middle')"
+    )
+    user_beds_per_1000: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Override baseline hospital beds per 1,000 population (optional)"
+    )
+    user_cost_per_bed: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Override cost per hospital bed in USD (optional)"
     )
 
 
@@ -2221,8 +2236,13 @@ def predict_health(req: PredictHealthRequest):
         # Public health (DALY) parameters
         population_size = req.population_size or 100000
         gdp_per_capita_usd = req.gdp_per_capita_usd or 8500.0
+        
+        # Healthcare Infrastructure Stress Testing parameters
+        economy_tier = (req.economy_tier or "middle").lower()
+        user_beds_per_1000 = req.user_beds_per_1000
+        user_cost_per_bed = req.user_cost_per_bed
 
-        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}, intervention={intervention_type}, population={population_size}, gdp_per_capita=${gdp_per_capita_usd}", file=sys.stderr, flush=True)
+        print(f"[HEALTH REQUEST] lat={lat}, lon={lon}, workforce={workforce_size}, wage=${daily_wage}, intervention={intervention_type}, population={population_size}, gdp_per_capita=${gdp_per_capita_usd}, economy_tier={economy_tier}", file=sys.stderr, flush=True)
 
         try:
             end_date = datetime.now()
@@ -2441,6 +2461,97 @@ def predict_health(req: PredictHealthRequest):
         print(f"[HEALTH] PUBLIC HEALTH: baseline_dalys={public_health_analysis['baseline_dalys_lost']}, averted={public_health_analysis['dalys_averted']}, value=${public_health_analysis['economic_value_preserved_usd']:,.2f}", file=sys.stderr, flush=True)
 
         # ====================================================================
+        # HEALTHCARE INFRASTRUCTURE STRESS TESTING
+        # ====================================================================
+        # Research-backed data for hospital capacity stress testing
+        research_data = {
+            "high": {
+                "beds_per_1000": 3.8,
+                "capex": 1000000,
+                "occupancy": 0.72,
+                "surge_pct": 0.035,
+                "dalys_per_deficit": 2.5
+            },
+            "middle": {
+                "beds_per_1000": 2.8,
+                "capex": 250000,
+                "occupancy": 0.75,
+                "surge_pct": 0.075,
+                "dalys_per_deficit": 4.8
+            },
+            "low": {
+                "beds_per_1000": 1.2,
+                "capex": 60000,
+                "occupancy": 0.80,
+                "surge_pct": 0.135,
+                "dalys_per_deficit": 8.2
+            }
+        }
+        
+        # Set active tier with fallback to middle
+        active_tier = research_data.get(economy_tier, research_data["middle"])
+        
+        # Allow user overrides for baseline beds and cost
+        baseline_beds_per_1000 = user_beds_per_1000 if user_beds_per_1000 is not None else active_tier["beds_per_1000"]
+        cost_per_bed = user_cost_per_bed if user_cost_per_bed is not None else active_tier["capex"]
+        
+        # Calculate infrastructure stress metrics
+        # Temperature increase from baseline (using actual temp_c vs. assumed baseline of 25°C)
+        baseline_temp = 25.0
+        projected_temp_increase = max(0, temp_c - baseline_temp)
+        
+        # Baseline capacity calculation
+        baseline_capacity = (population_size / 1000) * baseline_beds_per_1000
+        
+        # Available beds after baseline occupancy
+        available_beds = baseline_capacity * (1.0 - active_tier["occupancy"])
+        
+        # Climate-induced surge admissions (increases with temperature)
+        surge_admissions = baseline_capacity * (active_tier["surge_pct"] * projected_temp_increase)
+        
+        # Bed deficit if surge exceeds available capacity
+        bed_deficit = max(0, surge_admissions - available_beds)
+        
+        # Infrastructure bond CAPEX to address deficit
+        infrastructure_bond_capex = bed_deficit * cost_per_bed
+        
+        # Build infrastructure stress test response
+        infrastructure_stress_test = {
+            "baseline_capacity": round(baseline_capacity, 2),
+            "available_beds": round(available_beds, 2),
+            "surge_admissions": round(surge_admissions, 2),
+            "bed_deficit": round(bed_deficit, 2),
+            "infrastructure_bond_capex": round(infrastructure_bond_capex, 2),
+            "capacity_breach": bool(bed_deficit > 0),
+            "applied_tier": economy_tier,
+            "baseline_beds_per_1000": round(baseline_beds_per_1000, 2),
+            "cost_per_bed": round(cost_per_bed, 2),
+            "projected_temp_increase": round(projected_temp_increase, 1)
+        }
+        
+        # If intervention is hospital_expansion, update public health analysis with infrastructure ROI
+        if intervention_type and intervention_type.lower() == "hospital_expansion":
+            # Calculate DALYs averted by addressing bed deficit
+            dalys_averted_infrastructure = bed_deficit * active_tier["dalys_per_deficit"]
+            
+            # Use same value_per_daly as public health analysis (2x GDP per capita)
+            value_per_daly = 2.0 * gdp_per_capita_usd
+            economic_value_preserved_infrastructure = dalys_averted_infrastructure * value_per_daly
+            
+            # Update public health analysis with infrastructure intervention
+            public_health_analysis["intervention_type"] = "hospital_expansion"
+            public_health_analysis["dalys_averted"] = round(dalys_averted_infrastructure, 1)
+            public_health_analysis["economic_value_preserved_usd"] = round(economic_value_preserved_infrastructure, 2)
+            public_health_analysis["intervention_description"] = f"Hospital expansion adds {bed_deficit:.0f} beds to address climate-induced surge capacity"
+            
+            # Update intervention CAPEX to infrastructure bond amount
+            intervention_capex = infrastructure_bond_capex
+            
+            print(f"[HEALTH] HOSPITAL EXPANSION: bed_deficit={bed_deficit:.0f}, capex=${infrastructure_bond_capex:,.2f}, dalys_averted={dalys_averted_infrastructure:.1f}, value=${economic_value_preserved_infrastructure:,.2f}", file=sys.stderr, flush=True)
+        
+        print(f"[HEALTH] INFRASTRUCTURE STRESS: capacity={baseline_capacity:.0f}, surge={surge_admissions:.0f}, deficit={bed_deficit:.0f}, capex=${infrastructure_bond_capex:,.2f}", file=sys.stderr, flush=True)
+
+        # ====================================================================
         # RESPONSE CONSTRUCTION
         # ====================================================================
         response_data = {
@@ -2459,6 +2570,7 @@ def predict_health(req: PredictHealthRequest):
                 "currency": "USD",
             },
             "public_health_analysis": public_health_analysis,
+            "infrastructure_stress_test": infrastructure_stress_test,
         }
         
         # Add intervention analysis if cooling intervention was requested
