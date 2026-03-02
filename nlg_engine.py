@@ -79,21 +79,37 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
     """
     Generate executive summary for public health DALY analysis.
     
-    Expected data keys:
-    - dalys_averted: float
-    - economic_value_preserved_usd: float
-    - intervention_type: str
-    - baseline_dalys_lost: float (optional)
-    - wbgt_estimate: float (optional)
-    - malaria_risk_score: int (optional)
+    Expected data structure (from /predict-health response):
+    {
+        "public_health_analysis": {
+            "dalys_averted": float,
+            "economic_value_preserved_usd": float,
+            "intervention_type": str,
+            "intervention_description": str,
+            "baseline_dalys_lost": float
+        },
+        "heat_stress_analysis": {
+            "wbgt_estimate": float
+        },
+        "malaria_risk_analysis": {
+            "risk_score": int
+        }
+    }
     """
     try:
-        dalys_averted = data.get('dalys_averted', 0.0)
-        economic_value = data.get('economic_value_preserved_usd', 0.0)
-        intervention_type = data.get('intervention_type', 'none')
-        baseline_dalys = data.get('baseline_dalys_lost', 0.0)
-        wbgt = data.get('wbgt_estimate', None)
-        malaria_risk = data.get('malaria_risk_score', 0)
+        # Extract nested public_health_analysis data
+        public_health = data.get('public_health_analysis', {})
+        dalys_averted = public_health.get('dalys_averted', 0.0)
+        economic_value = public_health.get('economic_value_preserved_usd', 0.0)
+        intervention_type = public_health.get('intervention_type', 'none')
+        baseline_dalys = public_health.get('baseline_dalys_lost', 0.0)
+        
+        # Extract climate data from other top-level keys
+        heat_stress = data.get('heat_stress_analysis', {})
+        wbgt = heat_stress.get('wbgt_estimate', None)
+        
+        malaria_risk_data = data.get('malaria_risk_analysis', {})
+        malaria_risk = malaria_risk_data.get('risk_score', 0)
         
         # Sentence 1: Hazard context
         hazards = []
@@ -121,7 +137,14 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
             'passive_cooling': 'passive cooling interventions',
             'none': 'no intervention'
         }
-        intervention_display = intervention_names.get(intervention_type.lower(), intervention_type)
+        
+        # Format intervention type: if not in mapping, convert underscores to spaces and title case
+        intervention_display = intervention_names.get(intervention_type.lower(), None)
+        if intervention_display is None:
+            # Format raw intervention_type by replacing underscores and title casing
+            intervention_display = intervention_type.replace('_', ' ').title().lower()
+            if intervention_display == 'none':
+                intervention_display = 'no intervention'
         
         if dalys_averted > 0:
             dalys_formatted = f"{dalys_averted:,.0f}"
