@@ -79,29 +79,58 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
     """
     Generate executive summary for public health DALY analysis.
     
+    Supports hospital expansion interventions with municipal bond narrative.
+    
     Expected data structure (from /predict-health response):
     {
         "public_health_analysis": {
             "dalys_averted": float,
             "economic_value_preserved_usd": float,
             "intervention_type": str
+        },
+        "infrastructure_stress_test": {
+            "bed_deficit": float,
+            "infrastructure_bond_capex": float,
+            "applied_tier": str
         }
     }
     """
     try:
-        # 1. Extract and forcefully clean the nested data
-        public_health_data = data.get('public_health_analysis', {})
+        # The Ultimate Nested-Data Hunter
+        def deep_find(d, key):
+            if isinstance(d, dict):
+                if key in d and d[key] is not None: return d[key]
+                for v in d.values():
+                    res = deep_find(v, key)
+                    if res is not None: return res
+            return None
         
+        # 1. Extract public health data using deep_find
         try:
-            dalys_averted = float(public_health_data.get('dalys_averted', 0))
+            dalys_averted = float(deep_find(data, 'dalys_averted') or 0)
         except (ValueError, TypeError):
             dalys_averted = 0.0
         
         # Grab the intervention, whatever it is
-        raw_intervention = str(public_health_data.get('intervention_type', '')).strip().lower()
+        raw_intervention = str(deep_find(data, 'intervention_type') or '').strip().lower()
+        
+        # Extract infrastructure stress test data for hospital expansion
+        try:
+            bed_deficit = float(deep_find(data, 'bed_deficit') or 0.0)
+        except (ValueError, TypeError):
+            bed_deficit = 0.0
+        
+        try:
+            bond_capex = float(deep_find(data, 'infrastructure_bond_capex') or 0.0)
+        except (ValueError, TypeError):
+            bond_capex = 0.0
+        
+        applied_tier = str(deep_find(data, 'applied_tier') or 'middle').capitalize()
         
         # 2. Format the intervention string (Catch both snake_case and UI Display Names)
-        if 'cooling' in raw_intervention:
+        if 'hospital' in raw_intervention or 'expansion' in raw_intervention:
+            intervention_text = "Municipal Hospital Expansion"
+        elif 'cooling' in raw_intervention:
             intervention_text = "Urban Cooling Centers"
         elif 'mosquito' in raw_intervention or 'eradication' in raw_intervention:
             intervention_text = "Mosquito Eradication"
@@ -110,7 +139,7 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         
         # 3. Format the economic value
         try:
-            economic_value = float(public_health_data.get('economic_value_preserved_usd', 0))
+            economic_value = float(deep_find(data, 'economic_value_preserved_usd') or 0)
         except (ValueError, TypeError):
             economic_value = 0.0
         
@@ -119,19 +148,30 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         else:
             econ_str = f"${economic_value:,.0f}"
         
+        # Format bond currency
+        bond_str = f"${bond_capex / 1_000_000:.1f} million" if bond_capex >= 1_000_000 else f"${bond_capex:,.0f}"
+        
         # 4. Build the sentences
         sentence_1 = f"{location_name} faces economic disruption from projected climate hazards."
         
         # Debug log to catch hidden formatting issues
-        print(f"[NLG DEBUG] DALYs: {dalys_averted} (type: {type(dalys_averted)}), Intervention: '{raw_intervention}'")
+        print(f"[NLG DEBUG] DALYs: {dalys_averted} (type: {type(dalys_averted)}), Intervention: '{raw_intervention}', Bed Deficit: {bed_deficit}, Bond: ${bond_capex:,.0f}")
         
-        # REMOVED THE STRICT STRING CHECK. If math > 0, print the sentence!
+        # Dynamic sentence building based on intervention type and data availability
         if dalys_averted > 0.0:
-            sentence_2 = f"Implementing {intervention_text} will avert {dalys_averted:.1f} Disability-Adjusted Life Years (DALYs)."
+            if intervention_text == "Municipal Hospital Expansion":
+                if bed_deficit > 0:
+                    sentence_2 = f"Based on {applied_tier}-Income macroeconomic benchmarks, projected extreme heat events will trigger a critical triage capacity breach, generating a deficit of {bed_deficit:,.0f} hospital beds."
+                    sentence_3 = f"Issuing a {bond_str} infrastructure bond to expand local triage capacity will avert {dalys_averted:.1f} DALYs, preserving {econ_str} in local economic value."
+                else:
+                    sentence_2 = f"Current healthcare infrastructure is projected to withstand the heatwave with no significant bed deficit."
+                    sentence_3 = f"Proactive monitoring of triage capacity remains a favorable public sector strategy."
+            else:
+                sentence_2 = f"Implementing {intervention_text} will avert {dalys_averted:.1f} Disability-Adjusted Life Years (DALYs)."
+                sentence_3 = f"This preserves {econ_str} in macroeconomic value, making it a highly favorable public sector investment."
         else:
             sentence_2 = "Climate health risks require assessment and intervention planning."
-        
-        sentence_3 = f"This preserves {econ_str} in macroeconomic value, making it a highly favorable public sector investment."
+            sentence_3 = f"This preserves {econ_str} in macroeconomic value, making it a highly favorable public sector investment."
         
         summary_text = f"{sentence_1} {sentence_2} {sentence_3}"
         
