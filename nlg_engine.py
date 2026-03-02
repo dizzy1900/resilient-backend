@@ -259,36 +259,43 @@ def _generate_coastal_summary(location_name: str, data: Dict[str, Any]) -> str:
     try:
         # 1. Forcefully extract the nested data
         coastal_data = data.get('data', data) if isinstance(data.get('data'), dict) else data
-        
-        # Dig into the analysis dictionary where the metrics likely live
         analysis_data = coastal_data.get('analysis', {})
         
+        # 2. Safely extract Avoided Loss ONLY
         try:
-            # Check both analysis dict and root for capex and avoided damage
-            capex = float(analysis_data.get('intervention_capex', coastal_data.get('intervention_capex', coastal_data.get('capex', 0))))
-            
-            # Check for multiple possible naming conventions
-            avoided_damage = float(analysis_data.get('avoided_loss', analysis_data.get('avoided_damage_usd', coastal_data.get('avoided_damage_usd', coastal_data.get('avoided_loss', 0)))))
+            loss_val = analysis_data.get('avoided_loss', 
+                                        analysis_data.get('avoided_damage_usd',
+                                        coastal_data.get('avoided_loss', 
+                                        coastal_data.get('avoided_damage_usd', 0))))
+            avoided_damage = float(0 if loss_val is None else loss_val)
         except (ValueError, TypeError):
-            capex, avoided_damage = 0.0, 0.0
+            avoided_damage = 0.0
         
-        # 2. Format currency strings
-        if avoided_damage >= 1_000_000:
-            damage_str = f"${avoided_damage / 1_000_000:.1f} million"
-        else:
-            damage_str = f"${avoided_damage:,.0f}"
+        # 3. Safely extract Capex ONLY
+        try:
+            capex_val = analysis_data.get('intervention_capex',
+                                         analysis_data.get('capex',
+                                         coastal_data.get('intervention_capex', 
+                                         coastal_data.get('capex', 0))))
+            capex = float(0 if capex_val is None else capex_val)
+        except (ValueError, TypeError):
+            capex = 0.0
         
-        if capex >= 1_000_000:
-            capex_str = f"${capex / 1_000_000:.1f} million"
-        else:
-            capex_str = f"${capex:,.0f}"
+        # 4. Format currency strings
+        damage_str = f"${avoided_damage / 1_000_000:.1f} million" if avoided_damage >= 1_000_000 else f"${avoided_damage:,.0f}"
+        capex_str = f"${capex / 1_000_000:.1f} million" if capex >= 1_000_000 else f"${capex:,.0f}"
         
-        # 3. Build the sentences
+        # 5. Build the sentences dynamically based on available data
         sentence_1 = f"{location_name} faces critical asset exposure from projected sea-level rise and coastal inundation hazards."
         
         if avoided_damage > 0.0:
-            sentence_2 = f"Implementing the proposed coastal defense infrastructure requires a capital expenditure of {capex_str}."
-            sentence_3 = f"This adaptation secures {damage_str} in avoided structural damage, effectively safeguarding long-term asset value."
+            if capex > 0:
+                sentence_2 = f"Implementing the proposed coastal defense infrastructure requires a capital expenditure of {capex_str}."
+                sentence_3 = f"This adaptation secures {damage_str} in avoided structural damage, effectively safeguarding long-term asset value."
+            else:
+                # Fallback if Capex is missing but Avoided Loss exists
+                sentence_2 = f"Implementing the proposed coastal defense infrastructure secures {damage_str} in avoided structural damage."
+                sentence_3 = "This adaptation effectively safeguards long-term asset value and reduces operational downtime."
         else:
             sentence_2 = "Without targeted seawall or coastal defense investments, waterfront assets remain highly vulnerable to storm surges."
             sentence_3 = "Please utilize the dashboard to model specific physical interventions to mitigate these projected physical risks."

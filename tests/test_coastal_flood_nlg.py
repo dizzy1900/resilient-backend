@@ -112,6 +112,42 @@ def test_coastal_nested_analysis():
     print("\n✅ PASSED - Deep nested analysis extraction worked!")
 
 
+def test_coastal_null_capex():
+    """Test coastal summary with null/None CAPEX but valid avoided_loss"""
+    print("\n" + "="*80)
+    print("TEST: Coastal with Null CAPEX (Avoided Loss Valid)")
+    print("="*80)
+    
+    data = {
+        'analysis': {
+            'avoided_loss': 30000000
+        },
+        'intervention_capex': None  # This should NOT crash or reset avoided_loss to 0
+    }
+    
+    summary = generate_deterministic_summary(
+        module_name='coastal',
+        location_name='San Francisco Bay',
+        data=data
+    )
+    
+    print(f"Location: San Francisco Bay")
+    print(f"\nExtracted Data:")
+    print(f"  - CAPEX: {data['intervention_capex']} (None/null)")
+    print(f"  - Avoided Loss: ${data['analysis']['avoided_loss']:,}")
+    print(f"\nGenerated Summary:")
+    print(summary)
+    
+    # Assertions
+    assert "San Francisco Bay" in summary, "Should mention location"
+    assert "$30.0 million" in summary, "Should extract avoided loss despite null CAPEX"
+    assert "avoided structural damage" in summary, "Should show intervention sentence"
+    # Should NOT mention CAPEX amount since it's null
+    assert "safeguards long-term asset value" in summary, "Should show alternative sentence"
+    
+    print("\n✅ PASSED - Null CAPEX didn't crash or reset avoided_loss!")
+
+
 def test_coastal_no_intervention():
     """Test coastal summary when no intervention is modeled"""
     print("\n" + "="*80)
@@ -292,6 +328,7 @@ if __name__ == '__main__':
     test_coastal_with_intervention()
     test_coastal_nested_data()
     test_coastal_nested_analysis()
+    test_coastal_null_capex()
     test_coastal_no_intervention()
     
     # Flood tests
@@ -303,6 +340,6 @@ if __name__ == '__main__':
     print("\n" + "="*80)
     print("TEST SUMMARY")
     print("="*80)
-    print("Passed: 8/8")
-    print("Failed: 0/8")
+    print("Passed: 9/9")
+    print("Failed: 0/9")
     print("\n✅ ALL COASTAL AND FLOOD TESTS PASSED\n")
