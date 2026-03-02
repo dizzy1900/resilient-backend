@@ -89,11 +89,15 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
     }
     """
     try:
-        # 1. Extract the nested data
+        # 1. Extract and forcefully clean the nested data
         public_health_data = data.get('public_health_analysis', {})
-        dalys_averted = public_health_data.get('dalys_averted', 0)
-        economic_value = public_health_data.get('economic_value_preserved_usd', 0)
-        raw_intervention = public_health_data.get('intervention_type', '')
+        
+        try:
+            dalys_averted = float(public_health_data.get('dalys_averted', 0))
+        except (ValueError, TypeError):
+            dalys_averted = 0.0
+        
+        raw_intervention = str(public_health_data.get('intervention_type', '')).strip().lower()
         
         # 2. Format the intervention string
         if raw_intervention == 'urban_cooling_center':
@@ -103,7 +107,12 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         else:
             intervention_text = "targeted interventions"
         
-        # 3. Format the economic value (convert to millions)
+        # 3. Format the economic value
+        try:
+            economic_value = float(public_health_data.get('economic_value_preserved_usd', 0))
+        except (ValueError, TypeError):
+            economic_value = 0.0
+        
         if economic_value >= 1_000_000:
             econ_str = f"${economic_value / 1_000_000:.1f} million"
         else:
@@ -112,7 +121,10 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         # 4. Build the sentences
         sentence_1 = f"{location_name} faces economic disruption from projected climate hazards."
         
-        if dalys_averted > 0 and raw_intervention in ['urban_cooling_center', 'mosquito_eradication']:
+        # Debug log to catch hidden formatting issues
+        print(f"[NLG DEBUG] DALYs: {dalys_averted} (type: {type(dalys_averted)}), Intervention: '{raw_intervention}'")
+        
+        if dalys_averted > 0.0 and raw_intervention in ['urban_cooling_center', 'mosquito_eradication']:
             sentence_2 = f"Implementing {intervention_text} will avert {dalys_averted:.1f} Disability-Adjusted Life Years (DALYs)."
         else:
             sentence_2 = "Climate health risks require assessment and intervention planning."
@@ -125,6 +137,7 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
     
     except Exception as e:
         # Graceful degradation on parsing errors
+        print(f"[NLG ERROR] Exception in health_public summary: {e}")
         return _generate_fallback_summary(location_name)
 
 
