@@ -206,42 +206,43 @@ def _generate_agriculture_summary(location_name: str, data: Dict[str, Any]) -> s
     Generate executive summary for agriculture risk analysis.
     
     Expected data keys:
-    - current_yield_tons: float
-    - proposed_yield_tons: float
-    - current_revenue: float
-    - proposed_revenue: float
-    - crop_type: str
+    - transition_capex: float
+    - avoided_revenue_loss: float
+    - risk_reduction_pct: float
     """
     try:
-        current_yield = data.get('current_yield_tons', 0.0)
-        proposed_yield = data.get('proposed_yield_tons', 0.0)
-        current_revenue = data.get('current_revenue', 0.0)
-        proposed_revenue = data.get('proposed_revenue', 0.0)
-        crop_type = data.get('crop_type', 'crops')
+        # 1. Forcefully clean the data
+        try:
+            capex = float(data.get('transition_capex', 0))
+            avoided_loss = float(data.get('avoided_revenue_loss', 0))
+            risk_reduction = float(data.get('risk_reduction_pct', 0))
+        except (ValueError, TypeError):
+            capex, avoided_loss, risk_reduction = 0.0, 0.0, 0.0
         
-        # Sentence 1: Climate impact
-        sentence1 = f"{location_name} agricultural operations face declining {crop_type} yields due to climate stress including heat and drought."
-        
-        # Sentence 2: Yield comparison
-        if proposed_yield > current_yield:
-            yield_increase = ((proposed_yield - current_yield) / current_yield) * 100
-            sentence2 = f"Switching to climate-resilient crop varieties can increase yields by {yield_increase:.0f}%, from {current_yield:.1f} to {proposed_yield:.1f} tons per hectare."
+        # 2. Format currency strings
+        if avoided_loss >= 1_000_000:
+            loss_str = f"${avoided_loss / 1_000_000:.1f} million"
         else:
-            sentence2 = f"Current {crop_type} yields are projected at {current_yield:.1f} tons per hectare under baseline climate conditions."
+            loss_str = f"${avoided_loss:,.0f}"
         
-        # Sentence 3: Revenue impact
-        if proposed_revenue > current_revenue:
-            revenue_increase = proposed_revenue - current_revenue
-            if revenue_increase >= 1e6:
-                revenue_display = f"${revenue_increase/1e6:.1f}M"
-            else:
-                revenue_display = f"${revenue_increase:,.0f}"
-            sentence3 = f"This adaptation strategy generates an additional {revenue_display} in annual revenue, making it a financially compelling investment."
+        if capex >= 1_000_000:
+            capex_str = f"${capex / 1_000_000:.1f} million"
         else:
-            revenue_display = f"${current_revenue/1e6:.1f}M" if current_revenue >= 1e6 else f"${current_revenue:,.0f}"
-            sentence3 = f"Baseline annual revenue is projected at {revenue_display} under current conditions."
+            capex_str = f"${capex:,.0f}"
         
-        return f"{sentence1} {sentence2} {sentence3}"
+        # 3. Build the sentences
+        sentence_1 = f"{location_name} faces agricultural yield disruption and commodity price volatility from projected climate hazards."
+        
+        if avoided_loss > 0.0 or risk_reduction > 0.0:
+            sentence_2 = f"Implementing the proposed crop adaptation requires a capital expenditure of {capex_str} and reduces climate risk by {risk_reduction:.1f}%."
+            sentence_3 = f"This adaptation secures {loss_str} in avoided revenue loss, protecting local supply chains and financial stability."
+        else:
+            sentence_2 = "Without targeted crop adaptation or irrigation investments, agricultural yields remain highly vulnerable to severe climate shocks."
+            sentence_3 = "Please utilize the dashboard to model specific seed transitions or infrastructure upgrades to mitigate these projected losses."
+        
+        summary_text = f"{sentence_1} {sentence_2} {sentence_3}"
+        
+        return summary_text
     
     except Exception as e:
         return _generate_fallback_summary(location_name)
