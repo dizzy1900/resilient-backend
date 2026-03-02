@@ -97,15 +97,16 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         except (ValueError, TypeError):
             dalys_averted = 0.0
         
+        # Grab the intervention, whatever it is
         raw_intervention = str(public_health_data.get('intervention_type', '')).strip().lower()
         
-        # 2. Format the intervention string
-        if raw_intervention == 'urban_cooling_center':
+        # 2. Format the intervention string (Catch both snake_case and UI Display Names)
+        if 'cooling' in raw_intervention:
             intervention_text = "Urban Cooling Centers"
-        elif raw_intervention == 'mosquito_eradication':
+        elif 'mosquito' in raw_intervention or 'eradication' in raw_intervention:
             intervention_text = "Mosquito Eradication"
         else:
-            intervention_text = "targeted interventions"
+            intervention_text = "the selected public health intervention"
         
         # 3. Format the economic value
         try:
@@ -124,7 +125,8 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
         # Debug log to catch hidden formatting issues
         print(f"[NLG DEBUG] DALYs: {dalys_averted} (type: {type(dalys_averted)}), Intervention: '{raw_intervention}'")
         
-        if dalys_averted > 0.0 and raw_intervention in ['urban_cooling_center', 'mosquito_eradication']:
+        # REMOVED THE STRICT STRING CHECK. If math > 0, print the sentence!
+        if dalys_averted > 0.0:
             sentence_2 = f"Implementing {intervention_text} will avert {dalys_averted:.1f} Disability-Adjusted Life Years (DALYs)."
         else:
             sentence_2 = "Climate health risks require assessment and intervention planning."
