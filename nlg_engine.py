@@ -130,28 +130,35 @@ def _generate_health_public_summary(location_name: str, data: Dict[str, Any]) ->
             sentence1 = f"{location_name} faces economic disruption from projected climate hazards."
         
         # Sentence 2: Intervention impact
+        # Map backend intervention types to readable frontend strings
         intervention_names = {
-            'urban_cooling_center': 'urban cooling centers',
-            'mosquito_eradication': 'mosquito eradication programs',
-            'hvac_retrofit': 'HVAC cooling systems',
-            'passive_cooling': 'passive cooling interventions',
-            'none': 'no intervention'
+            'urban_cooling_center': 'Urban Cooling Centers',
+            'mosquito_eradication': 'Mosquito Eradication',
+            'hvac_retrofit': 'HVAC Cooling Systems',
+            'passive_cooling': 'Passive Cooling Interventions',
+            'none': 'no intervention',
+            '': 'no intervention'
         }
         
-        # Format intervention type: if not in mapping, convert underscores to spaces and title case
+        # Get intervention display name (case-insensitive lookup)
         intervention_display = intervention_names.get(intervention_type.lower(), None)
+        
         if intervention_display is None:
             # Format raw intervention_type by replacing underscores and title casing
-            intervention_display = intervention_type.replace('_', ' ').title().lower()
-            if intervention_display == 'none':
+            intervention_display = intervention_type.replace('_', ' ').title()
+            if intervention_display.lower() == 'none':
                 intervention_display = 'no intervention'
         
-        if dalys_averted > 0:
+        # Generate sentence based on whether we have a real intervention
+        if dalys_averted > 0 and intervention_display.lower() != 'no intervention':
             dalys_formatted = f"{dalys_averted:,.0f}"
             sentence2 = f"Implementing {intervention_display} will avert {dalys_formatted} Disability-Adjusted Life Years (DALYs)."
-        else:
+        elif baseline_dalys > 0:
             baseline_formatted = f"{baseline_dalys:,.0f}"
             sentence2 = f"The baseline health burden is {baseline_formatted} DALYs lost annually without intervention."
+        else:
+            # No intervention and no baseline data - use fallback
+            sentence2 = "Climate health risks require assessment and intervention planning."
         
         # Sentence 3: Economic value and recommendation
         if economic_value > 0:

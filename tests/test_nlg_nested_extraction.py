@@ -98,7 +98,8 @@ def test_health_public_nested_extraction():
     # Assertions
     assert "Bangkok" in summary, "Should mention location"
     assert "146" in summary or "145.6" in summary or "145" in summary, f"Should mention DALYs averted (145.6), got: {summary}"
-    assert "urban cooling centers" in summary.lower() or "cooling center" in summary.lower(), f"Should mention intervention, got: {summary}"
+    assert "Urban Cooling Centers" in summary or "urban cooling centers" in summary.lower(), f"Should mention intervention with proper capitalization, got: {summary}"
+    assert "no intervention" not in summary.lower() or dalys_averted == 0, f"Should NOT show 'no intervention' when DALYs > 0, got: {summary}"
     assert "$3.5" in summary or "$3.4" in summary, f"Should mention economic value (~$3.5M), got: {summary}"
     assert "0 DALYs" not in summary, f"Should NOT show 0 DALYs, got: {summary}"
     assert len(summary.split('. ')) >= 3, "Should have at least 3 sentences"
@@ -140,6 +141,7 @@ def test_health_public_high_daly_scenario():
     
     assert "4,247" in summary or "4,246" in summary or "4247" in summary, "Should mention ~4,247 DALYs"
     assert "$59" in summary, "Should mention ~$59M"
+    assert "Urban Cooling Centers" in summary, "Should mention intervention with proper capitalization"
     assert "extreme heat stress" in summary.lower(), "Should mention extreme heat (WBGT > 30)"
     assert "malaria" in summary.lower(), "Should mention malaria risk"
     print("✅ PASSED")
@@ -181,7 +183,7 @@ def test_health_public_mosquito_eradication():
     
     assert "36,750" in summary or "36750" in summary, "Should mention 36,750 DALYs"
     assert "$147" in summary, "Should mention $147M"
-    assert "mosquito eradication" in summary.lower(), "Should mention mosquito eradication"
+    assert "Mosquito Eradication" in summary, "Should mention intervention with proper capitalization"
     print("✅ PASSED")
 
 
@@ -216,7 +218,7 @@ def test_health_public_baseline_no_intervention():
     print()
     
     assert "Low Risk Area" in summary, "Should mention location"
-    assert "baseline health burden" in summary.lower() or "0 DALYs" in summary, "Should mention baseline or zero burden"
+    assert "baseline health burden" in summary.lower() or "assessment and intervention planning" in summary.lower(), "Should mention baseline or planning message"
     print("✅ PASSED")
 
 
