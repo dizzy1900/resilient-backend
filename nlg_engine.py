@@ -249,9 +249,14 @@ def _generate_agriculture_summary(location_name: str, data: Dict[str, Any]) -> s
     - transition_capex: float
     - avoided_revenue_loss: float
     - risk_reduction_pct: float
+    - proposed_crop: str (optional)
+    - intervention_type: str (optional)
     """
     try:
-        # 1. Forcefully clean the data
+        # 1. Extract the intervention/crop name
+        raw_intervention = str(data.get('proposed_crop', data.get('intervention_type', ''))).strip().lower()
+        
+        # 2. Extract financial metrics
         try:
             capex = float(data.get('transition_capex', 0))
             avoided_loss = float(data.get('avoided_revenue_loss', 0))
@@ -259,7 +264,17 @@ def _generate_agriculture_summary(location_name: str, data: Dict[str, Any]) -> s
         except (ValueError, TypeError):
             capex, avoided_loss, risk_reduction = 0.0, 0.0, 0.0
         
-        # 2. Format currency strings
+        # 3. Map the intervention string to display name
+        if 'wheat' in raw_intervention or 'heat-tolerant' in raw_intervention:
+            intervention_text = "Heat-Tolerant Wheat"
+        elif 'sorghum' in raw_intervention or 'drought-resistant' in raw_intervention:
+            intervention_text = "Drought-Resistant Sorghum"
+        elif 'none' in raw_intervention or raw_intervention == '':
+            intervention_text = "None"
+        else:
+            intervention_text = raw_intervention.title()
+        
+        # 4. Format currency strings
         if avoided_loss >= 1_000_000:
             loss_str = f"${avoided_loss / 1_000_000:.1f} million"
         else:
@@ -270,14 +285,17 @@ def _generate_agriculture_summary(location_name: str, data: Dict[str, Any]) -> s
         else:
             capex_str = f"${capex:,.0f}"
         
-        # 3. Build the sentences
+        # 5. Build the sentences
         sentence_1 = f"{location_name} faces agricultural yield disruption and commodity price volatility from projected climate hazards."
         
-        if avoided_loss > 0.0 or risk_reduction > 0.0:
-            sentence_2 = f"Implementing the proposed crop adaptation requires a capital expenditure of {capex_str} and reduces climate risk by {risk_reduction:.1f}%."
-            sentence_3 = f"This adaptation secures {loss_str} in avoided revenue loss, protecting local supply chains and financial stability."
+        # Dynamic narrative based on intervention validity
+        if intervention_text != "None" and avoided_loss > 0.0:
+            # Positive ROI pitch for valid interventions
+            sentence_2 = f"Transitioning to {intervention_text} requires {capex_str} in capital expenditure, but is projected to protect {loss_str} in annual revenue from climate-driven yield degradation."
+            sentence_3 = f"This crop adaptation reduces climate risk by {risk_reduction:.1f}%, protecting local supply chains and financial stability."
         else:
-            sentence_2 = "Without targeted crop adaptation or irrigation investments, agricultural yields remain highly vulnerable to severe climate shocks."
+            # Warning text for no intervention or zero avoided loss
+            sentence_2 = "Without targeted crop adaptation, agricultural yields remain highly vulnerable to severe climate shocks."
             sentence_3 = "Please utilize the dashboard to model specific seed transitions or infrastructure upgrades to mitigate these projected losses."
         
         summary_text = f"{sentence_1} {sentence_2} {sentence_3}"
