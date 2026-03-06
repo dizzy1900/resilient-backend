@@ -283,6 +283,67 @@ class CVaRRequest(BaseModel):
     volatility_pct: float = Field(0.05, description="Damage volatility as decimal (e.g. 0.05 for 5%)")
     num_simulations: int = Field(10_000, ge=100, le=1_000_000, description="Number of Monte Carlo trials")
 
+
+class FinancingTranches(BaseModel):
+    """Financing tranche structure for blended finance."""
+    commercial_debt_pct: float = Field(..., ge=0.0, le=1.0, description="Commercial debt percentage (e.g., 0.50 for 50%)")
+    concessional_grant_pct: float = Field(..., ge=0.0, le=1.0, description="Concessional grant percentage (e.g., 0.30 for 30%)")
+    municipal_equity_pct: float = Field(..., ge=0.0, le=1.0, description="Municipal equity percentage (e.g., 0.20 for 20%)")
+
+
+class BlendedFinanceRequest(BaseModel):
+    """Request for Blended Finance Structuring calculation."""
+    total_capex: float = Field(..., gt=0, description="Total capital expenditure in USD")
+    resilience_score: int = Field(..., ge=0, le=100, description="Climate resilience score (0-100)")
+    tranches: FinancingTranches = Field(..., description="Financing tranche structure")
+    
+    @property
+    def tranches_sum(self) -> float:
+        """Calculate the sum of all tranche percentages."""
+        return (
+            self.tranches.commercial_debt_pct +
+            self.tranches.concessional_grant_pct +
+            self.tranches.municipal_equity_pct
+        )
+    
+    def model_post_init(self, __context) -> None:
+        """Validate that tranches sum to 1.0 (100%)."""
+        tranches_total = self.tranches_sum
+        if not (0.99 <= tranches_total <= 1.01):  # Allow 1% tolerance for rounding
+            raise ValueError(
+                f"Tranches must sum to 1.0 (100%). Current sum: {tranches_total:.4f}"
+            )
+
+
+class BlendedFinanceResponse(BaseModel):
+    """Response for Blended Finance Structuring calculation."""
+    status: str = "success"
+    
+    # Input echo
+    input_capex: float
+    input_resilience_score: int
+    
+    # Tranche breakdown
+    commercial_debt_amount: float
+    concessional_grant_amount: float
+    municipal_equity_amount: float
+    
+    # Interest rates
+    base_commercial_rate: float
+    applied_commercial_rate: float
+    concessional_rate: float
+    municipal_equity_rate: float
+    greenium_discount_bps: float
+    
+    # Blended metrics
+    blended_interest_rate: float
+    annual_debt_service: float
+    total_greenium_savings: float
+    
+    # Additional context
+    loan_term_years: int
+    debt_principal: float  # Excludes equity portion
+
 # ---------------------------------------------------------------------------
 # Pydantic models for legacy /predict-* routes (ported from Flask)
 # ---------------------------------------------------------------------------
@@ -1208,6 +1269,113 @@ def cvar_simulation(req: CVaRRequest) -> dict:
             "distribution": distribution,
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/finance/blended-structure", response_model=BlendedFinanceResponse)
+def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceResponse:
+    """Calculate blended cost of capital with climate resilience-based interest rate discounts.
+    
+    This endpoint structures blended finance deals by:
+    1. Applying "Greenium" discounts based on climate resilience score
+    2. Calculating weighted average cost of capital across debt/grant/equity tranches
+    3. Computing annual debt service and lifetime savings from green financing
+    
+    Use case: Determine optimal financing structure for climate adaptation projects
+    with mixed public-private funding sources.
+    """
+    try:
+        # --- Define Base Market Rates ---
+        BASE_COMMERCIAL_RATE = 0.065  # 6.5%
+        CONCESSIONAL_RATE = 0.020     # 2.0%
+        MUNICIPAL_EQUITY_RATE = 0.0   # 0.0% (equity has no interest)
+        
+        LOAN_TERM_YEARS = 20
+        
+        # --- Apply Greenium Logic based on Resilience Score ---
+        greenium_discount_bps = 0.0
+        if req.resilience_score >= 80:
+            greenium_discount_bps = 50.0  # 50 basis points
+        elif req.resilience_score >= 60:
+            greenium_discount_bps = 25.0  # 25 basis points
+        
+        greenium_discount = greenium_discount_bps / 10_000.0  # Convert bps to decimal
+        applied_commercial_rate = BASE_COMMERCIAL_RATE - greenium_discount
+        
+        # --- Calculate Tranche Amounts ---
+        commercial_debt_amount = req.total_capex * req.tranches.commercial_debt_pct
+        concessional_grant_amount = req.total_capex * req.tranches.concessional_grant_pct
+        municipal_equity_amount = req.total_capex * req.tranches.municipal_equity_pct
+        
+        # --- Calculate Blended Interest Rate (Weighted Average) ---
+        # Equity doesn't contribute to interest rate calculation
+        blended_interest_rate = (
+            (req.tranches.commercial_debt_pct * applied_commercial_rate) +
+            (req.tranches.concessional_grant_pct * CONCESSIONAL_RATE) +
+            (req.tranches.municipal_equity_pct * MUNICIPAL_EQUITY_RATE)
+        )
+        
+        # --- Calculate Debt Principal (Excludes Equity) ---
+        # Equity doesn't need to be repaid, so exclude from loan calculations
+        debt_principal = commercial_debt_amount + concessional_grant_amount
+        
+        # --- Calculate Annual Debt Service (Amortizing Loan) ---
+        def calculate_annual_payment(principal: float, rate: float, periods: int) -> float:
+            """Calculate annual payment for amortizing loan: PMT = P * r / (1 - (1+r)^-n)"""
+            if rate == 0:
+                return principal / periods
+            return principal * rate / (1.0 - (1.0 + rate) ** -periods)
+        
+        if debt_principal > 0:
+            annual_debt_service = calculate_annual_payment(
+                debt_principal, blended_interest_rate, LOAN_TERM_YEARS
+            )
+        else:
+            annual_debt_service = 0.0
+        
+        # --- Calculate Total Greenium Savings ---
+        # Compare actual debt service vs. debt service at base commercial rate
+        if commercial_debt_amount > 0:
+            # Calculate what commercial debt portion would cost at base rate
+            base_commercial_payment = calculate_annual_payment(
+                commercial_debt_amount, BASE_COMMERCIAL_RATE, LOAN_TERM_YEARS
+            )
+            
+            # Calculate what commercial debt portion costs at discounted rate
+            discounted_commercial_payment = calculate_annual_payment(
+                commercial_debt_amount, applied_commercial_rate, LOAN_TERM_YEARS
+            )
+            
+            # Lifetime savings on commercial debt tranche
+            annual_savings = base_commercial_payment - discounted_commercial_payment
+            total_greenium_savings = annual_savings * LOAN_TERM_YEARS
+        else:
+            total_greenium_savings = 0.0
+        
+        # --- Build Response ---
+        return BlendedFinanceResponse(
+            status="success",
+            input_capex=req.total_capex,
+            input_resilience_score=req.resilience_score,
+            commercial_debt_amount=round(commercial_debt_amount, 2),
+            concessional_grant_amount=round(concessional_grant_amount, 2),
+            municipal_equity_amount=round(municipal_equity_amount, 2),
+            base_commercial_rate=BASE_COMMERCIAL_RATE,
+            applied_commercial_rate=round(applied_commercial_rate, 6),
+            concessional_rate=CONCESSIONAL_RATE,
+            municipal_equity_rate=MUNICIPAL_EQUITY_RATE,
+            greenium_discount_bps=greenium_discount_bps,
+            blended_interest_rate=round(blended_interest_rate, 6),
+            annual_debt_service=round(annual_debt_service, 2),
+            total_greenium_savings=round(total_greenium_savings, 2),
+            loan_term_years=LOAN_TERM_YEARS,
+            debt_principal=round(debt_principal, 2)
+        )
+    
+    except ValueError as e:
+        # Handle tranche validation errors
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
