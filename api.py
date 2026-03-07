@@ -296,6 +296,7 @@ class BlendedFinanceRequest(BaseModel):
     total_capex: float = Field(..., gt=0, description="Total capital expenditure in USD")
     resilience_score: int = Field(..., ge=0, le=100, description="Climate resilience score (0-100)")
     tranches: FinancingTranches = Field(..., description="Financing tranche structure")
+    rate_shock_bps: Optional[int] = Field(None, description="Optional rate shock in basis points for sensitivity analysis (e.g., 100 for +1%)")
     
     @property
     def tranches_sum(self) -> float:
@@ -343,6 +344,9 @@ class BlendedFinanceResponse(BaseModel):
     # Additional context
     loan_term_years: int
     debt_principal: float  # Excludes equity portion
+    
+    # Sensitivity analysis (optional, only present if rate_shock_bps provided)
+    sensitivity_analysis: Optional[Dict[str, Any]] = None
 
 # ---------------------------------------------------------------------------
 # Pydantic models for legacy /predict-* routes (ported from Flask)
@@ -1353,6 +1357,43 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
         else:
             total_greenium_savings = 0.0
         
+        # --- Sensitivity Analysis (Rate Shock) ---
+        sensitivity_analysis = None
+        if req.rate_shock_bps is not None:
+            # Apply rate shock to commercial debt portion only
+            rate_shock_decimal = req.rate_shock_bps / 10_000.0  # Convert bps to decimal
+            stressed_commercial_rate = applied_commercial_rate + rate_shock_decimal
+            
+            # Calculate stressed blended rate
+            stressed_blended_rate = (
+                (req.tranches.commercial_debt_pct * stressed_commercial_rate) +
+                (req.tranches.concessional_grant_pct * CONCESSIONAL_RATE) +
+                (req.tranches.municipal_equity_pct * MUNICIPAL_EQUITY_RATE)
+            )
+            
+            # Calculate stressed annual debt service
+            if debt_principal > 0:
+                stressed_annual_payment = calculate_annual_payment(
+                    debt_principal, stressed_blended_rate, LOAN_TERM_YEARS
+                )
+            else:
+                stressed_annual_payment = 0.0
+            
+            # Calculate delta metrics
+            debt_service_delta = stressed_annual_payment - annual_debt_service
+            payment_increase_pct = (debt_service_delta / annual_debt_service * 100) if annual_debt_service > 0 else 0.0
+            
+            sensitivity_analysis = {
+                "rate_shock_bps": req.rate_shock_bps,
+                "stressed_commercial_rate": round(stressed_commercial_rate, 6),
+                "stressed_blended_rate": round(stressed_blended_rate, 6),
+                "base_annual_payment": round(annual_debt_service, 2),
+                "stressed_annual_payment": round(stressed_annual_payment, 2),
+                "debt_service_delta": round(debt_service_delta, 2),
+                "payment_increase_pct": round(payment_increase_pct, 2),
+                "lifetime_cost_increase": round(debt_service_delta * LOAN_TERM_YEARS, 2)
+            }
+        
         # --- Build Response ---
         return BlendedFinanceResponse(
             status="success",
@@ -1370,7 +1411,8 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
             annual_debt_service=round(annual_debt_service, 2),
             total_greenium_savings=round(total_greenium_savings, 2),
             loan_term_years=LOAN_TERM_YEARS,
-            debt_principal=round(debt_principal, 2)
+            debt_principal=round(debt_principal, 2),
+            sensitivity_analysis=sensitivity_analysis
         )
     
     except ValueError as e:
