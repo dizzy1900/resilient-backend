@@ -298,6 +298,8 @@ class BlendedFinanceRequest(BaseModel):
     tranches: FinancingTranches = Field(..., description="Financing tranche structure")
     rate_shock_bps: Optional[int] = Field(None, description="Optional rate shock in basis points for sensitivity analysis (e.g., 100 for +1%)")
     annual_carbon_revenue: float = Field(0.0, ge=0, description="Annual carbon credit revenue in USD to offset debt service costs")
+    base_insurance_premium: float = Field(0.0, ge=0, description="Current annual insurance premium in USD before resilience improvements")
+    risk_reduction_pct: float = Field(0.0, ge=0, le=1.0, description="Percentage of physical risk mitigated by resilience investment (0.0 to 1.0)")
     
     @property
     def tranches_sum(self) -> float:
@@ -345,6 +347,10 @@ class BlendedFinanceResponse(BaseModel):
     # Carbon credit revenue integration
     annual_carbon_revenue: float
     net_annual_debt_service: float
+    
+    # Insurance premium reduction (Resilience Dividend)
+    insurance_savings: float
+    adjusted_insurance_premium: float
     
     # Additional context
     loan_term_years: int
@@ -1362,9 +1368,15 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
         else:
             total_greenium_savings = 0.0
         
+        # --- Insurance Premium Reduction (Resilience Dividend) ---
+        # Insurers pass through 50% of risk reduction as premium savings
+        INSURANCE_DISCOUNT_FACTOR = 0.50
+        insurance_savings = req.base_insurance_premium * (req.risk_reduction_pct * INSURANCE_DISCOUNT_FACTOR)
+        adjusted_insurance_premium = req.base_insurance_premium - insurance_savings
+        
         # --- Carbon Credit Revenue Integration ---
-        # Calculate net debt service after offsetting with carbon revenue
-        net_annual_debt_service = max(0.0, annual_debt_service - req.annual_carbon_revenue)
+        # Calculate net debt service after offsetting with carbon revenue and insurance savings
+        net_annual_debt_service = max(0.0, annual_debt_service - req.annual_carbon_revenue - insurance_savings)
         
         # --- Sensitivity Analysis (Rate Shock) ---
         sensitivity_analysis = None
@@ -1421,6 +1433,8 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
             total_greenium_savings=round(total_greenium_savings, 2),
             annual_carbon_revenue=round(req.annual_carbon_revenue, 2),
             net_annual_debt_service=round(net_annual_debt_service, 2),
+            insurance_savings=round(insurance_savings, 2),
+            adjusted_insurance_premium=round(adjusted_insurance_premium, 2),
             loan_term_years=LOAN_TERM_YEARS,
             debt_principal=round(debt_principal, 2),
             sensitivity_analysis=sensitivity_analysis
