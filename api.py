@@ -297,6 +297,7 @@ class BlendedFinanceRequest(BaseModel):
     resilience_score: int = Field(..., ge=0, le=100, description="Climate resilience score (0-100)")
     tranches: FinancingTranches = Field(..., description="Financing tranche structure")
     rate_shock_bps: Optional[int] = Field(None, description="Optional rate shock in basis points for sensitivity analysis (e.g., 100 for +1%)")
+    annual_carbon_revenue: float = Field(0.0, ge=0, description="Annual carbon credit revenue in USD to offset debt service costs")
     
     @property
     def tranches_sum(self) -> float:
@@ -340,6 +341,10 @@ class BlendedFinanceResponse(BaseModel):
     blended_interest_rate: float
     annual_debt_service: float
     total_greenium_savings: float
+    
+    # Carbon credit revenue integration
+    annual_carbon_revenue: float
+    net_annual_debt_service: float
     
     # Additional context
     loan_term_years: int
@@ -1357,6 +1362,10 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
         else:
             total_greenium_savings = 0.0
         
+        # --- Carbon Credit Revenue Integration ---
+        # Calculate net debt service after offsetting with carbon revenue
+        net_annual_debt_service = max(0.0, annual_debt_service - req.annual_carbon_revenue)
+        
         # --- Sensitivity Analysis (Rate Shock) ---
         sensitivity_analysis = None
         if req.rate_shock_bps is not None:
@@ -1410,6 +1419,8 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
             blended_interest_rate=round(blended_interest_rate, 6),
             annual_debt_service=round(annual_debt_service, 2),
             total_greenium_savings=round(total_greenium_savings, 2),
+            annual_carbon_revenue=round(req.annual_carbon_revenue, 2),
+            net_annual_debt_service=round(net_annual_debt_service, 2),
             loan_term_years=LOAN_TERM_YEARS,
             debt_principal=round(debt_principal, 2),
             sensitivity_analysis=sensitivity_analysis
