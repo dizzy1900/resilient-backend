@@ -543,19 +543,14 @@ class ExecutiveSummaryResponse(BaseModel):
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
-# CORS configuration for production and development frontends
+# CORS configuration - aggressively permissive for development phase
+# CRITICAL: This MUST be immediately after FastAPI() and before any routers/routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://platform.resilient.global",
-        "http://localhost:5173",
-        "http://localhost:8080",
-        "http://localhost:3000",
-    ],
-    allow_origin_regex=r"https://.*\.lovableproject\.com",
+    allow_origins=["*"],  # Allow all origins temporarily for debugging
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers
 )
 
 app.include_router(auth_router)
