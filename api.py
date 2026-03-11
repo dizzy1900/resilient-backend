@@ -543,11 +543,17 @@ class ExecutiveSummaryResponse(BaseModel):
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
-# Match the permissive CORS behavior of the Flask app.
+# CORS configuration for production and development frontends
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "https://platform.resilient.global",
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "http://localhost:3000",
+    ],
+    allow_origin_regex=r"https://.*\.lovableproject\.com",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
