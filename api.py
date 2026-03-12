@@ -559,6 +559,25 @@ class RouteRiskResponse(BaseModel):
     intervention_capex: float = Field(..., description="Capital expenditure for flood mitigation in USD")
 
 
+class GridRiskRequest(BaseModel):
+    """Request for Energy & Grid Resilience analysis."""
+    facility_sqft: float = Field(50000.0, gt=0, description="Facility size in square feet")
+    baseline_temp_c: float = Field(25.0, description="Baseline temperature in Celsius")
+    projected_temp_c: float = Field(..., description="Projected future temperature in Celsius")
+
+
+class GridRiskResponse(BaseModel):
+    """Response for Energy & Grid Resilience analysis."""
+    temp_anomaly: float = Field(..., description="Temperature increase in Celsius")
+    hvac_spike_pct: float = Field(..., description="HVAC demand spike as percentage (0-100)")
+    grid_failure_probability: float = Field(..., description="Grid failure probability (0-1)")
+    expected_downtime_hours: float = Field(..., description="Expected outage duration in hours")
+    downtime_loss: float = Field(..., description="Economic loss from downtime in USD")
+    required_solar_kw: float = Field(..., description="Required solar capacity in kW")
+    required_bess_kwh: float = Field(..., description="Required battery storage in kWh")
+    microgrid_capex: float = Field(..., description="Microgrid capital expenditure in USD")
+
+
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
 # CORS configuration - aggressively permissive for development phase
@@ -3157,6 +3176,100 @@ def calculate_route_risk(req: RouteRiskRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail=f"Route risk analysis failed: {str(e)}"
+        ) from e
+
+
+@app.post("/api/v1/network/grid-resilience", response_model=GridRiskResponse)
+def calculate_grid_resilience(req: GridRiskRequest) -> dict:
+    """Calculate energy grid resilience risk and microgrid sizing for extreme heat.
+    
+    This endpoint analyzes grid failure risk from HVAC demand spikes during heat waves
+    and calculates microgrid requirements (solar + battery storage) to maintain operations.
+    
+    Energy & Grid Resilience Logic:
+    - Rising temperatures increase HVAC cooling demand exponentially
+    - Grid failure probability increases with demand spikes
+    - Microgrids (solar + BESS) provide backup power during outages
+    - Facility size determines energy requirements and microgrid sizing
+    
+    Economic Formulas Applied:
+    - temp_anomaly = projected_temp_c - baseline_temp_c
+    - hvac_spike_pct = temp_anomaly × 0.027 (2.7% demand increase per °C)
+    - grid_failure_probability = min(hvac_spike_pct × 1.5, 100) / 100
+    - expected_downtime_hours = grid_failure_probability × 12 (max 12-hour outage)
+    - downtime_loss = expected_downtime_hours × $30,000/hour
+    
+    Microgrid Sizing Formulas:
+    - required_solar_kw = facility_sqft × 0.01 (1% sizing rule)
+    - required_bess_kwh = required_solar_kw × 4 (4 hours backup)
+    - microgrid_capex = (required_solar_kw × $2,000/kW) + (required_bess_kwh × $400/kWh)
+    
+    Use Cases:
+    - Data centers ensuring uptime during heat-induced grid failures
+    - Manufacturing facilities calculating business continuity costs
+    - Commercial real estate evaluating microgrid ROI
+    - Utilities planning grid hardening investments
+    
+    Example Request:
+    {
+        "facility_sqft": 100000.0,
+        "baseline_temp_c": 25.0,
+        "projected_temp_c": 35.0
+    }
+    
+    Returns:
+    - temp_anomaly: Temperature increase in °C
+    - hvac_spike_pct: HVAC demand spike percentage
+    - grid_failure_probability: Grid failure likelihood (0-1)
+    - expected_downtime_hours: Expected outage duration
+    - downtime_loss: Economic loss from downtime
+    - required_solar_kw: Solar capacity needed
+    - required_bess_kwh: Battery storage capacity needed
+    - microgrid_capex: Total microgrid investment cost
+    """
+    try:
+        # 1. Temperature anomaly calculation
+        temp_anomaly = req.projected_temp_c - req.baseline_temp_c
+        
+        # 2. HVAC spike percentage (2.7% per degree Celsius)
+        hvac_spike_pct = temp_anomaly * 0.027
+        
+        # 3. Grid failure probability (capped at 100%)
+        grid_failure_probability = min(hvac_spike_pct * 1.5, 100.0) / 100.0
+        
+        # 4. Expected downtime hours (maximum 12-hour outage assumption)
+        expected_downtime_hours = grid_failure_probability * 12.0
+        
+        # 5. Downtime economic loss ($30,000 per hour)
+        downtime_loss = expected_downtime_hours * 30000.0
+        
+        # 6. Microgrid sizing - Solar capacity (1% of facility size rule)
+        required_solar_kw = req.facility_sqft * 0.01
+        
+        # 7. Battery storage sizing (4 hours of backup)
+        required_bess_kwh = required_solar_kw * 4.0
+        
+        # 8. Microgrid capital expenditure
+        # Solar: $2,000/kW, Battery: $400/kWh
+        solar_cost = required_solar_kw * 2000.0
+        bess_cost = required_bess_kwh * 400.0
+        microgrid_capex = solar_cost + bess_cost
+        
+        return {
+            "temp_anomaly": round(temp_anomaly, 2),
+            "hvac_spike_pct": round(hvac_spike_pct * 100, 2),  # Convert to percentage
+            "grid_failure_probability": round(grid_failure_probability, 4),
+            "expected_downtime_hours": round(expected_downtime_hours, 2),
+            "downtime_loss": round(downtime_loss, 2),
+            "required_solar_kw": round(required_solar_kw, 2),
+            "required_bess_kwh": round(required_bess_kwh, 2),
+            "microgrid_capex": round(microgrid_capex, 2)
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Grid resilience analysis failed: {str(e)}"
         ) from e
 
 
