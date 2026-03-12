@@ -18,11 +18,11 @@ def test_temperature_anomaly():
 
 
 def test_hvac_spike_calculation():
-    """Test HVAC spike percentage: 2.7% per degree Celsius."""
+    """Test HVAC spike percentage: 3% per degree Celsius (ASHRAE)."""
     temp_anomaly = 10.0
-    expected_spike_pct = 0.27  # 27%
+    expected_spike_pct = 30.0  # 30% (as percentage, not decimal)
     
-    hvac_spike_pct = temp_anomaly * 0.027
+    hvac_spike_pct = temp_anomaly * 3.0
     
     assert abs(hvac_spike_pct - expected_spike_pct) < 0.001
 
@@ -30,18 +30,18 @@ def test_hvac_spike_calculation():
 def test_grid_failure_probability():
     """Test grid failure probability calculation (capped at 100%)."""
     # Test case 1: Normal case (not capped)
-    hvac_spike_pct = 0.20  # 20%
-    expected_prob = 0.30  # 30%
+    hvac_spike_pct = 20.0  # 20% (as percentage)
+    expected_prob = 0.30  # 30% (as decimal)
     
-    grid_failure_probability = min(hvac_spike_pct * 1.5, 1.0)
+    grid_failure_probability = min((hvac_spike_pct / 100.0) * 1.5, 1.0)
     
     assert abs(grid_failure_probability - expected_prob) < 0.001
     
     # Test case 2: Capped at 100%
-    hvac_spike_pct = 0.80  # 80%
+    hvac_spike_pct = 80.0  # 80% (as percentage)
     expected_prob_capped = 1.0  # 100% (capped)
     
-    grid_failure_probability_capped = min(hvac_spike_pct * 1.5, 1.0)
+    grid_failure_probability_capped = min((hvac_spike_pct / 100.0) * 1.5, 1.0)
     
     assert grid_failure_probability_capped == expected_prob_capped
 
@@ -57,11 +57,11 @@ def test_expected_downtime_hours():
 
 
 def test_downtime_loss():
-    """Test downtime economic loss: $30,000 per hour."""
+    """Test downtime economic loss: $25,000 per hour (Fuji/Siemens benchmark)."""
     expected_downtime_hours = 8.0
-    expected_loss = 240000.0  # $240k
+    expected_loss = 200000.0  # $200k
     
-    downtime_loss = expected_downtime_hours * 30000.0
+    downtime_loss = expected_downtime_hours * 25000.0
     
     assert downtime_loss == expected_loss
 
@@ -87,12 +87,12 @@ def test_battery_sizing():
 
 
 def test_microgrid_capex():
-    """Test microgrid CAPEX: $2,000/kW solar + $400/kWh battery."""
+    """Test microgrid CAPEX: $1,780/kW solar + $400/kWh battery (NREL ATB 2024)."""
     required_solar_kw = 500.0
     required_bess_kwh = 2000.0
-    expected_capex = 1800000.0  # (500 × 2000) + (2000 × 400) = $1M + $800k
+    expected_capex = 1690000.0  # (500 × 1780) + (2000 × 400) = $890k + $800k
     
-    solar_cost = required_solar_kw * 2000.0
+    solar_cost = required_solar_kw * 1780.0
     bess_cost = required_bess_kwh * 400.0
     microgrid_capex = solar_cost + bess_cost
     
@@ -100,30 +100,30 @@ def test_microgrid_capex():
 
 
 def test_full_scenario_moderate_heat():
-    """Test full calculation for moderate heat scenario."""
+    """Test full calculation for moderate heat scenario (default values)."""
     facility_sqft = 50000.0
     baseline_temp_c = 25.0
-    projected_temp_c = 30.0
+    projected_temp_c = 35.0  # Default value, +10°C
     
     # Temperature anomaly
-    temp_anomaly = projected_temp_c - baseline_temp_c  # 5°C
-    assert temp_anomaly == 5.0
+    temp_anomaly = projected_temp_c - baseline_temp_c  # 10°C
+    assert temp_anomaly == 10.0
     
-    # HVAC spike
-    hvac_spike_pct = temp_anomaly * 0.027  # 13.5%
-    assert abs(hvac_spike_pct - 0.135) < 0.001
+    # HVAC spike (ASHRAE: 3% per °C)
+    hvac_spike_pct = temp_anomaly * 3.0  # 30%
+    assert abs(hvac_spike_pct - 30.0) < 0.001
     
     # Grid failure probability
-    grid_failure_probability = min(hvac_spike_pct * 1.5, 1.0)  # 20.25%
-    assert abs(grid_failure_probability - 0.2025) < 0.001
+    grid_failure_probability = min((hvac_spike_pct / 100.0) * 1.5, 1.0)  # 45%
+    assert abs(grid_failure_probability - 0.45) < 0.001
     
     # Expected downtime
-    expected_downtime_hours = grid_failure_probability * 12.0  # 2.43 hours
-    assert abs(expected_downtime_hours - 2.43) < 0.01
+    expected_downtime_hours = grid_failure_probability * 12.0  # 5.4 hours
+    assert abs(expected_downtime_hours - 5.4) < 0.01
     
-    # Downtime loss
-    downtime_loss = expected_downtime_hours * 30000.0  # $72,900
-    assert abs(downtime_loss - 72900.0) < 1.0
+    # Downtime loss (Fuji/Siemens: $25k/hr)
+    downtime_loss = expected_downtime_hours * 25000.0  # $135,000
+    assert abs(downtime_loss - 135000.0) < 1.0
     
     # Solar sizing
     required_solar_kw = facility_sqft * 0.01  # 500 kW
@@ -133,9 +133,9 @@ def test_full_scenario_moderate_heat():
     required_bess_kwh = required_solar_kw * 4.0  # 2000 kWh
     assert required_bess_kwh == 2000.0
     
-    # Microgrid CAPEX
-    microgrid_capex = (required_solar_kw * 2000.0) + (required_bess_kwh * 400.0)
-    assert microgrid_capex == 1800000.0
+    # Microgrid CAPEX (NREL ATB 2024)
+    microgrid_capex = (required_solar_kw * 1780.0) + (required_bess_kwh * 400.0)
+    assert microgrid_capex == 1690000.0
 
 
 def test_full_scenario_extreme_heat():
@@ -148,21 +148,21 @@ def test_full_scenario_extreme_heat():
     temp_anomaly = projected_temp_c - baseline_temp_c  # 15°C
     assert temp_anomaly == 15.0
     
-    # HVAC spike
-    hvac_spike_pct = temp_anomaly * 0.027  # 40.5%
-    assert abs(hvac_spike_pct - 0.405) < 0.001
+    # HVAC spike (ASHRAE: 3% per °C)
+    hvac_spike_pct = temp_anomaly * 3.0  # 45%
+    assert abs(hvac_spike_pct - 45.0) < 0.001
     
     # Grid failure probability (should approach cap)
-    grid_failure_probability = min(hvac_spike_pct * 1.5, 1.0)  # 60.75%
-    assert abs(grid_failure_probability - 0.6075) < 0.001
+    grid_failure_probability = min((hvac_spike_pct / 100.0) * 1.5, 1.0)  # 67.5%
+    assert abs(grid_failure_probability - 0.675) < 0.001
     
     # Expected downtime
-    expected_downtime_hours = grid_failure_probability * 12.0  # 7.29 hours
-    assert abs(expected_downtime_hours - 7.29) < 0.01
+    expected_downtime_hours = grid_failure_probability * 12.0  # 8.1 hours
+    assert abs(expected_downtime_hours - 8.1) < 0.01
     
-    # Downtime loss
-    downtime_loss = expected_downtime_hours * 30000.0  # $218,700
-    assert abs(downtime_loss - 218700.0) < 1.0
+    # Downtime loss (Fuji/Siemens: $25k/hr)
+    downtime_loss = expected_downtime_hours * 25000.0  # $202,500
+    assert abs(downtime_loss - 202500.0) < 1.0
     
     # Solar sizing (larger facility)
     required_solar_kw = facility_sqft * 0.01  # 1000 kW
@@ -172,9 +172,9 @@ def test_full_scenario_extreme_heat():
     required_bess_kwh = required_solar_kw * 4.0  # 4000 kWh
     assert required_bess_kwh == 4000.0
     
-    # Microgrid CAPEX
-    microgrid_capex = (required_solar_kw * 2000.0) + (required_bess_kwh * 400.0)
-    assert microgrid_capex == 3600000.0
+    # Microgrid CAPEX (NREL ATB 2024)
+    microgrid_capex = (required_solar_kw * 1780.0) + (required_bess_kwh * 400.0)
+    assert microgrid_capex == 3380000.0
 
 
 def test_zero_temp_anomaly():
@@ -203,10 +203,10 @@ def test_extreme_temperature_capping():
     projected_temp_c = 50.0  # Extreme +25°C anomaly
     
     temp_anomaly = projected_temp_c - baseline_temp_c  # 25°C
-    hvac_spike_pct = temp_anomaly * 0.027  # 67.5%
-    grid_failure_probability = min(hvac_spike_pct * 1.5, 1.0)  # Should cap at 100%
+    hvac_spike_pct = temp_anomaly * 3.0  # 75% (ASHRAE)
+    grid_failure_probability = min((hvac_spike_pct / 100.0) * 1.5, 1.0)  # Should cap at 100%
     
-    # 67.5% × 1.5 = 101.25%, but capped at 100%
+    # 75% × 1.5 = 112.5%, but capped at 100%
     assert grid_failure_probability == 1.0
     
     expected_downtime_hours = grid_failure_probability * 12.0
@@ -219,11 +219,11 @@ def test_small_facility_sizing():
     
     required_solar_kw = facility_sqft * 0.01  # 100 kW
     required_bess_kwh = required_solar_kw * 4.0  # 400 kWh
-    microgrid_capex = (required_solar_kw * 2000.0) + (required_bess_kwh * 400.0)
+    microgrid_capex = (required_solar_kw * 1780.0) + (required_bess_kwh * 400.0)
     
     assert required_solar_kw == 100.0
     assert required_bess_kwh == 400.0
-    assert microgrid_capex == 360000.0  # $360k
+    assert microgrid_capex == 338000.0  # $338k (NREL ATB 2024)
 
 
 def test_large_facility_sizing():
@@ -232,11 +232,11 @@ def test_large_facility_sizing():
     
     required_solar_kw = facility_sqft * 0.01  # 5000 kW = 5 MW
     required_bess_kwh = required_solar_kw * 4.0  # 20,000 kWh
-    microgrid_capex = (required_solar_kw * 2000.0) + (required_bess_kwh * 400.0)
+    microgrid_capex = (required_solar_kw * 1780.0) + (required_bess_kwh * 400.0)
     
     assert required_solar_kw == 5000.0
     assert required_bess_kwh == 20000.0
-    assert microgrid_capex == 18000000.0  # $18M
+    assert microgrid_capex == 16900000.0  # $16.9M (NREL ATB 2024)
 
 
 def test_rounding_precision():

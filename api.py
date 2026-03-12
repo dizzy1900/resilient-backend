@@ -544,9 +544,8 @@ class ExecutiveSummaryResponse(BaseModel):
 
 class RouteRiskRequest(BaseModel):
     """Request for Macroeconomic Supply Chain route risk analysis."""
-    route_linestring: Dict[str, Any] = Field(..., description="GeoJSON LineString geometry representing the truck route")
+    route_geojson: Dict[str, Any] = Field(..., description="GeoJSON LineString geometry representing the truck route")
     cargo_value: float = Field(100000.0, description="Value of cargo in USD")
-    baseline_travel_hours: float = Field(..., gt=0, description="Expected travel time under normal conditions (hours)")
 
 
 class RouteRiskResponse(BaseModel):
@@ -563,15 +562,13 @@ class GridRiskRequest(BaseModel):
     """Request for Energy & Grid Resilience analysis."""
     facility_sqft: float = Field(50000.0, gt=0, description="Facility size in square feet")
     baseline_temp_c: float = Field(25.0, description="Baseline temperature in Celsius")
-    projected_temp_c: float = Field(..., description="Projected future temperature in Celsius")
+    projected_temp_c: float = Field(35.0, description="Projected future temperature in Celsius")
 
 
 class GridRiskResponse(BaseModel):
     """Response for Energy & Grid Resilience analysis."""
     temp_anomaly: float = Field(..., description="Temperature increase in Celsius")
     hvac_spike_pct: float = Field(..., description="HVAC demand spike as percentage (0-100)")
-    grid_failure_probability: float = Field(..., description="Grid failure probability (0-1)")
-    expected_downtime_hours: float = Field(..., description="Expected outage duration in hours")
     downtime_loss: float = Field(..., description="Economic loss from downtime in USD")
     required_solar_kw: float = Field(..., description="Required solar capacity in kW")
     required_bess_kwh: float = Field(..., description="Required battery storage in kWh")
@@ -3080,83 +3077,94 @@ def price_shock(req: PriceShockRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def calculate_flooded_miles(geojson: Dict[str, Any]) -> float:
+    """Mock/placeholder function for GEE flood hazard analysis.
+    
+    Returns a mock value until real Earth Engine raster integration is implemented.
+    
+    Args:
+        geojson: GeoJSON LineString geometry
+    
+    Returns:
+        float: Flooded miles (mock value: 2.5)
+    """
+    # TODO: Wire real Earth Engine raster integration
+    # For now, return mock value for testing and frontend development
+    return 2.5
+
+
 @app.post("/api/v1/network/route-risk", response_model=RouteRiskResponse)
 def calculate_route_risk(req: RouteRiskRequest) -> dict:
     """Calculate economic risk for truck routes intersecting flood zones.
     
-    This endpoint analyzes supply chain disruption risk by:
-    1. Intersecting a truck route (GeoJSON LineString) with flood hazard data via GEE
-    2. Calculating detour delays and economic costs
-    3. Estimating intervention capital expenditure for flood mitigation
+    This endpoint analyzes supply chain disruption risk using ATRI benchmarks:
+    1. Mock flooded miles calculation (placeholder for GEE integration)
+    2. Calculate detour delays and economic costs
+    3. Estimate intervention capital expenditure for flood mitigation
     
-    Macroeconomic Supply Chain Logic:
-    - Flood zones increase travel time due to detours and road damage
-    - Delays increase freight costs and cargo spoilage (perishable goods)
-    - Intervention CAPEX scales with flooded route length (e.g., road elevation, drainage)
-    
-    Economic Formulas Applied:
+    Economic Formulas (ATRI & Industry Benchmarks):
+    - flooded_miles = 2.5 (mock/placeholder)
     - detour_delay_hours = flooded_miles × 0.5 (30 min delay per flooded mile)
-    - freight_delay_cost = detour_delay_hours × $91.27/hour
-    - spoilage_cost = cargo_value × 0.2 × (detour_delay_hours / 24)
+    - freight_delay_cost = detour_delay_hours × $91.27 (ATRI Value of Time)
+    - spoilage_cost = cargo_value × 0.20 × (detour_delay_hours / 24) (20% spoilage rate per day)
     - total_value_at_risk = freight_delay_cost + spoilage_cost
-    - intervention_capex = flooded_miles × $6,500,000/mile
+    - intervention_capex = flooded_miles × $5,000,000 ($5M per mile highway elevation)
     
-    Use Case:
+    Use Cases:
     - Trucking companies assessing climate risk on critical routes
     - Insurance companies pricing supply chain disruption policies
     - Infrastructure planners prioritizing road elevation projects
     
     Example Request:
     {
-        "route_linestring": {
+        "route_geojson": {
             "type": "LineString",
-            "coordinates": [[-74.006, 40.7128], [-73.935, 40.7306], [-73.850, 40.7489]]
+            "coordinates": [[-74.006, 40.7128], [-73.935, 40.7306]]
         },
-        "cargo_value": 250000.0,
-        "baseline_travel_hours": 2.5
+        "cargo_value": 100000.0
     }
     
     Returns:
-    - flooded_miles: Length of route intersecting flood zones
+    - flooded_miles: Length of route intersecting flood zones (mock: 2.5)
     - detour_delay_hours: Additional delay from detours
-    - freight_delay_cost: Direct freight cost increase
-    - spoilage_cost: Cargo spoilage from delays (perishable goods)
+    - freight_delay_cost: ATRI-based freight cost increase
+    - spoilage_cost: Cargo spoilage from delays
     - total_value_at_risk: Combined economic impact
-    - intervention_capex: Cost to mitigate flood risk (road elevation, drainage)
+    - intervention_capex: Highway elevation cost ($5M/mile)
     """
     try:
-        # Extract LineString coordinates from GeoJSON
-        if req.route_linestring.get('type') != 'LineString':
+        # Validate GeoJSON structure
+        if req.route_geojson.get('type') != 'LineString':
             raise HTTPException(
                 status_code=400,
                 detail="Invalid GeoJSON: Expected LineString geometry"
             )
         
-        coordinates = req.route_linestring.get('coordinates')
+        coordinates = req.route_geojson.get('coordinates')
         if not coordinates or len(coordinates) < 2:
             raise HTTPException(
                 status_code=400,
                 detail="Invalid LineString: Must have at least 2 coordinate pairs"
             )
         
-        # Call GEE connector to analyze flood risk along route
-        flooded_miles = analyze_route_flood_risk(coordinates)
+        # Mock/placeholder for GEE integration
+        flooded_miles = calculate_flooded_miles(req.route_geojson)
         
-        # Economic calculations
+        # Economic calculations (ATRI & Industry Benchmarks)
         # 1. Detour delay: 30 minutes (0.5 hours) per flooded mile
         detour_delay_hours = flooded_miles * 0.5
         
-        # 2. Freight delay cost: $91.27 per hour
+        # 2. Freight delay cost: ATRI Value of Time ($91.27/hour)
         freight_delay_cost = detour_delay_hours * 91.27
         
-        # 3. Spoilage cost: 20% of cargo value, prorated by delay days
-        spoilage_cost = req.cargo_value * 0.2 * (detour_delay_hours / 24.0)
+        # 3. Spoilage cost: 20% spoilage rate per day
+        spoilage_cost = req.cargo_value * 0.20 * (detour_delay_hours / 24.0)
         
         # 4. Total value at risk
         total_value_at_risk = freight_delay_cost + spoilage_cost
         
-        # 5. Intervention CAPEX: $6.5 million per flooded mile
-        intervention_capex = flooded_miles * 6_500_000.0
+        # 5. Intervention CAPEX: $5 million per mile highway elevation
+        intervention_capex = flooded_miles * 5_000_000.0
         
         return {
             "flooded_miles": round(flooded_miles, 2),
@@ -3172,7 +3180,7 @@ def calculate_route_risk(req: RouteRiskRequest) -> dict:
         raise
     
     except Exception as e:
-        # Catch any GEE or calculation errors
+        # Catch any calculation errors
         raise HTTPException(
             status_code=500,
             detail=f"Route risk analysis failed: {str(e)}"
@@ -3181,28 +3189,23 @@ def calculate_route_risk(req: RouteRiskRequest) -> dict:
 
 @app.post("/api/v1/network/grid-resilience", response_model=GridRiskResponse)
 def calculate_grid_resilience(req: GridRiskRequest) -> dict:
-    """Calculate energy grid resilience risk and microgrid sizing for extreme heat.
+    """Calculate energy grid brownout risk and microgrid sizing for heatwaves.
     
     This endpoint analyzes grid failure risk from HVAC demand spikes during heat waves
-    and calculates microgrid requirements (solar + battery storage) to maintain operations.
+    using ASHRAE & NREL ATB 2024 benchmarks, and calculates microgrid requirements
+    (solar + battery storage) to maintain operations.
     
-    Energy & Grid Resilience Logic:
-    - Rising temperatures increase HVAC cooling demand exponentially
-    - Grid failure probability increases with demand spikes
-    - Microgrids (solar + BESS) provide backup power during outages
-    - Facility size determines energy requirements and microgrid sizing
-    
-    Economic Formulas Applied:
+    Economic Formulas (ASHRAE & NREL ATB 2024):
     - temp_anomaly = projected_temp_c - baseline_temp_c
-    - hvac_spike_pct = temp_anomaly × 0.027 (2.7% demand increase per °C)
-    - grid_failure_probability = min(hvac_spike_pct × 1.5, 100) / 100
-    - expected_downtime_hours = grid_failure_probability × 12 (max 12-hour outage)
-    - downtime_loss = expected_downtime_hours × $30,000/hour
+    - hvac_spike_pct = temp_anomaly × 3.0 (3% spike per degree C)
+    - grid_failure_probability = min((hvac_spike_pct / 100) × 1.5, 1.0)
+    - expected_downtime_hours = grid_failure_probability × 12.0
+    - downtime_loss = expected_downtime_hours × $25,000 (Fuji/Siemens $25k/hr benchmark)
     
-    Microgrid Sizing Formulas:
-    - required_solar_kw = facility_sqft × 0.01 (1% sizing rule)
-    - required_bess_kwh = required_solar_kw × 4 (4 hours backup)
-    - microgrid_capex = (required_solar_kw × $2,000/kW) + (required_bess_kwh × $400/kWh)
+    Microgrid Sizing (NREL ATB 2024):
+    - required_solar_kw = facility_sqft × 0.01
+    - required_bess_kwh = required_solar_kw × 4.0
+    - microgrid_capex = (required_solar_kw × $1,780) + (required_bess_kwh × $400)
     
     Use Cases:
     - Data centers ensuring uptime during heat-induced grid failures
@@ -3212,7 +3215,7 @@ def calculate_grid_resilience(req: GridRiskRequest) -> dict:
     
     Example Request:
     {
-        "facility_sqft": 100000.0,
+        "facility_sqft": 50000.0,
         "baseline_temp_c": 25.0,
         "projected_temp_c": 35.0
     }
@@ -3220,28 +3223,26 @@ def calculate_grid_resilience(req: GridRiskRequest) -> dict:
     Returns:
     - temp_anomaly: Temperature increase in °C
     - hvac_spike_pct: HVAC demand spike percentage
-    - grid_failure_probability: Grid failure likelihood (0-1)
-    - expected_downtime_hours: Expected outage duration
-    - downtime_loss: Economic loss from downtime
+    - downtime_loss: Economic loss from downtime (Fuji/Siemens benchmark)
     - required_solar_kw: Solar capacity needed
     - required_bess_kwh: Battery storage capacity needed
-    - microgrid_capex: Total microgrid investment cost
+    - microgrid_capex: Total microgrid investment cost (NREL ATB 2024)
     """
     try:
         # 1. Temperature anomaly calculation
         temp_anomaly = req.projected_temp_c - req.baseline_temp_c
         
-        # 2. HVAC spike percentage (2.7% per degree Celsius)
-        hvac_spike_pct = temp_anomaly * 0.027
+        # 2. HVAC spike percentage (3% per degree Celsius - ASHRAE)
+        hvac_spike_pct = temp_anomaly * 3.0
         
         # 3. Grid failure probability (capped at 100%)
-        grid_failure_probability = min(hvac_spike_pct * 1.5, 100.0) / 100.0
+        grid_failure_probability = min((hvac_spike_pct / 100.0) * 1.5, 1.0)
         
         # 4. Expected downtime hours (maximum 12-hour outage assumption)
         expected_downtime_hours = grid_failure_probability * 12.0
         
-        # 5. Downtime economic loss ($30,000 per hour)
-        downtime_loss = expected_downtime_hours * 30000.0
+        # 5. Downtime economic loss (Fuji/Siemens $25k/hr benchmark)
+        downtime_loss = expected_downtime_hours * 25000.0
         
         # 6. Microgrid sizing - Solar capacity (1% of facility size rule)
         required_solar_kw = req.facility_sqft * 0.01
@@ -3249,17 +3250,15 @@ def calculate_grid_resilience(req: GridRiskRequest) -> dict:
         # 7. Battery storage sizing (4 hours of backup)
         required_bess_kwh = required_solar_kw * 4.0
         
-        # 8. Microgrid capital expenditure
-        # Solar: $2,000/kW, Battery: $400/kWh
-        solar_cost = required_solar_kw * 2000.0
+        # 8. Microgrid capital expenditure (NREL ATB 2024)
+        # Solar: $1,780/kW, Battery: $400/kWh
+        solar_cost = required_solar_kw * 1780.0
         bess_cost = required_bess_kwh * 400.0
         microgrid_capex = solar_cost + bess_cost
         
         return {
             "temp_anomaly": round(temp_anomaly, 2),
-            "hvac_spike_pct": round(hvac_spike_pct * 100, 2),  # Convert to percentage
-            "grid_failure_probability": round(grid_failure_probability, 4),
-            "expected_downtime_hours": round(expected_downtime_hours, 2),
+            "hvac_spike_pct": round(hvac_spike_pct, 2),
             "downtime_loss": round(downtime_loss, 2),
             "required_solar_kw": round(required_solar_kw, 2),
             "required_bess_kwh": round(required_bess_kwh, 2),

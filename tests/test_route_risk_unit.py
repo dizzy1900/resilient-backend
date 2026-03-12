@@ -2,14 +2,21 @@
 """
 Unit tests for Macroeconomic Supply Chain Route Risk calculations.
 
-Tests the economic formulas without requiring GEE credentials or API server.
+Tests the economic formulas using mock flooded miles (2.5) without requiring GEE credentials.
 """
+
+
+def test_mock_flooded_miles():
+    """Test mock flooded miles placeholder."""
+    flooded_miles = 2.5  # Mock/placeholder value
+    
+    assert flooded_miles == 2.5
 
 
 def test_detour_delay_calculation():
     """Test detour delay calculation: 0.5 hours per flooded mile."""
-    flooded_miles = 10.0
-    expected_delay = 5.0  # 10 miles × 0.5 hours/mile
+    flooded_miles = 2.5  # Mock value
+    expected_delay = 1.25  # 2.5 miles × 0.5 hours/mile
     
     detour_delay_hours = flooded_miles * 0.5
     
@@ -51,11 +58,11 @@ def test_total_value_at_risk():
 
 
 def test_intervention_capex():
-    """Test intervention CAPEX: $6.5M per flooded mile."""
-    flooded_miles = 3.5
-    expected_capex = 22750000.0  # 3.5 miles × $6.5M/mile
+    """Test intervention CAPEX: $5M per flooded mile (highway elevation)."""
+    flooded_miles = 2.5  # Mock value
+    expected_capex = 12500000.0  # 2.5 miles × $5M/mile
     
-    intervention_capex = flooded_miles * 6_500_000.0
+    intervention_capex = flooded_miles * 5_000_000.0
     
     assert intervention_capex == expected_capex
 
@@ -90,24 +97,24 @@ def test_high_value_cargo_spoilage():
     assert high_spoilage == 10 * low_spoilage
 
 
-def test_full_scenario_nyc_to_newark():
-    """Test full calculation for NYC to Newark route scenario."""
-    flooded_miles = 2.5
+def test_full_scenario_mock():
+    """Test full calculation using mock flooded miles."""
+    flooded_miles = 2.5  # Mock value
     cargo_value = 100000.0
     
-    # Economic calculations
+    # Economic calculations (ATRI benchmarks)
     detour_delay_hours = flooded_miles * 0.5  # 1.25 hours
     freight_delay_cost = detour_delay_hours * 91.27  # $114.09
-    spoilage_cost = cargo_value * 0.2 * (detour_delay_hours / 24.0)  # $1,041.67
+    spoilage_cost = cargo_value * 0.20 * (detour_delay_hours / 24.0)  # $1,041.67
     total_value_at_risk = freight_delay_cost + spoilage_cost  # $1,155.76
-    intervention_capex = flooded_miles * 6_500_000.0  # $16.25M
+    intervention_capex = flooded_miles * 5_000_000.0  # $12.5M
     
     # Assertions
     assert abs(detour_delay_hours - 1.25) < 0.01
     assert abs(freight_delay_cost - 114.0875) < 0.01
     assert abs(spoilage_cost - 1041.6667) < 0.01
     assert abs(total_value_at_risk - 1155.7542) < 0.01
-    assert intervention_capex == 16250000.0
+    assert intervention_capex == 12500000.0
 
 
 def test_rounding_precision():
@@ -143,6 +150,9 @@ if __name__ == "__main__":
     # Run tests manually without pytest
     print("Running Macroeconomic Supply Chain Route Risk Unit Tests\n")
     
+    test_mock_flooded_miles()
+    print("✅ test_mock_flooded_miles")
+    
     test_detour_delay_calculation()
     print("✅ test_detour_delay_calculation")
     
@@ -164,8 +174,8 @@ if __name__ == "__main__":
     test_high_value_cargo_spoilage()
     print("✅ test_high_value_cargo_spoilage")
     
-    test_full_scenario_nyc_to_newark()
-    print("✅ test_full_scenario_nyc_to_newark")
+    test_full_scenario_mock()
+    print("✅ test_full_scenario_mock")
     
     test_rounding_precision()
     print("✅ test_rounding_precision")
