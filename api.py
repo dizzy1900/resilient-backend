@@ -56,6 +56,7 @@ from fastapi.responses import JSONResponse
 from gee_connector import (
     get_weather_data, get_coastal_params, get_monthly_data,
     analyze_spatial_viability, get_terrain_data, get_ndvi_timeseries,
+    analyze_route_flood_risk,
 )
 from batch_processor import run_batch_job
 from coastal_engine import analyze_flood_risk, analyze_urban_impact
@@ -539,6 +540,23 @@ class ExecutiveSummaryRequest(BaseModel):
 class ExecutiveSummaryResponse(BaseModel):
     """Response containing generated executive summary."""
     summary_text: str = Field(..., description="3-sentence executive summary generated from simulation data")
+
+
+class RouteRiskRequest(BaseModel):
+    """Request for Macroeconomic Supply Chain route risk analysis."""
+    route_linestring: Dict[str, Any] = Field(..., description="GeoJSON LineString geometry representing the truck route")
+    cargo_value: float = Field(100000.0, description="Value of cargo in USD")
+    baseline_travel_hours: float = Field(..., gt=0, description="Expected travel time under normal conditions (hours)")
+
+
+class RouteRiskResponse(BaseModel):
+    """Response for Macroeconomic Supply Chain route risk analysis."""
+    flooded_miles: float = Field(..., description="Total route length intersecting flood zones (miles)")
+    detour_delay_hours: float = Field(..., description="Additional delay due to flood detours (hours)")
+    freight_delay_cost: float = Field(..., description="Cost of freight delays in USD")
+    spoilage_cost: float = Field(..., description="Cost of cargo spoilage due to delays in USD")
+    total_value_at_risk: float = Field(..., description="Total economic value at risk in USD")
+    intervention_capex: float = Field(..., description="Capital expenditure for flood mitigation in USD")
 
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
@@ -3041,6 +3059,105 @@ def price_shock(req: PriceShockRequest) -> dict:
     except Exception as e:
         # Unexpected errors
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/api/v1/network/route-risk", response_model=RouteRiskResponse)
+def calculate_route_risk(req: RouteRiskRequest) -> dict:
+    """Calculate economic risk for truck routes intersecting flood zones.
+    
+    This endpoint analyzes supply chain disruption risk by:
+    1. Intersecting a truck route (GeoJSON LineString) with flood hazard data via GEE
+    2. Calculating detour delays and economic costs
+    3. Estimating intervention capital expenditure for flood mitigation
+    
+    Macroeconomic Supply Chain Logic:
+    - Flood zones increase travel time due to detours and road damage
+    - Delays increase freight costs and cargo spoilage (perishable goods)
+    - Intervention CAPEX scales with flooded route length (e.g., road elevation, drainage)
+    
+    Economic Formulas Applied:
+    - detour_delay_hours = flooded_miles × 0.5 (30 min delay per flooded mile)
+    - freight_delay_cost = detour_delay_hours × $91.27/hour
+    - spoilage_cost = cargo_value × 0.2 × (detour_delay_hours / 24)
+    - total_value_at_risk = freight_delay_cost + spoilage_cost
+    - intervention_capex = flooded_miles × $6,500,000/mile
+    
+    Use Case:
+    - Trucking companies assessing climate risk on critical routes
+    - Insurance companies pricing supply chain disruption policies
+    - Infrastructure planners prioritizing road elevation projects
+    
+    Example Request:
+    {
+        "route_linestring": {
+            "type": "LineString",
+            "coordinates": [[-74.006, 40.7128], [-73.935, 40.7306], [-73.850, 40.7489]]
+        },
+        "cargo_value": 250000.0,
+        "baseline_travel_hours": 2.5
+    }
+    
+    Returns:
+    - flooded_miles: Length of route intersecting flood zones
+    - detour_delay_hours: Additional delay from detours
+    - freight_delay_cost: Direct freight cost increase
+    - spoilage_cost: Cargo spoilage from delays (perishable goods)
+    - total_value_at_risk: Combined economic impact
+    - intervention_capex: Cost to mitigate flood risk (road elevation, drainage)
+    """
+    try:
+        # Extract LineString coordinates from GeoJSON
+        if req.route_linestring.get('type') != 'LineString':
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid GeoJSON: Expected LineString geometry"
+            )
+        
+        coordinates = req.route_linestring.get('coordinates')
+        if not coordinates or len(coordinates) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid LineString: Must have at least 2 coordinate pairs"
+            )
+        
+        # Call GEE connector to analyze flood risk along route
+        flooded_miles = analyze_route_flood_risk(coordinates)
+        
+        # Economic calculations
+        # 1. Detour delay: 30 minutes (0.5 hours) per flooded mile
+        detour_delay_hours = flooded_miles * 0.5
+        
+        # 2. Freight delay cost: $91.27 per hour
+        freight_delay_cost = detour_delay_hours * 91.27
+        
+        # 3. Spoilage cost: 20% of cargo value, prorated by delay days
+        spoilage_cost = req.cargo_value * 0.2 * (detour_delay_hours / 24.0)
+        
+        # 4. Total value at risk
+        total_value_at_risk = freight_delay_cost + spoilage_cost
+        
+        # 5. Intervention CAPEX: $6.5 million per flooded mile
+        intervention_capex = flooded_miles * 6_500_000.0
+        
+        return {
+            "flooded_miles": round(flooded_miles, 2),
+            "detour_delay_hours": round(detour_delay_hours, 2),
+            "freight_delay_cost": round(freight_delay_cost, 2),
+            "spoilage_cost": round(spoilage_cost, 2),
+            "total_value_at_risk": round(total_value_at_risk, 2),
+            "intervention_capex": round(intervention_capex, 2)
+        }
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
+        raise
+    
+    except Exception as e:
+        # Catch any GEE or calculation errors
+        raise HTTPException(
+            status_code=500,
+            detail=f"Route risk analysis failed: {str(e)}"
+        ) from e
 
 
 @app.post("/api/v1/ai/executive-summary", response_model=ExecutiveSummaryResponse)

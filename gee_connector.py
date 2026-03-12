@@ -5,6 +5,7 @@
 import json
 import os
 from datetime import datetime, timedelta
+from typing import List
 import ee
 from gee_credentials import load_gee_credentials, is_gee_available
 
@@ -468,3 +469,59 @@ def analyze_spatial_viability(lat: float, lon: float, temp_increase_c: float) ->
         'future_sq_km': round(future_sq_km, 2),
         'loss_pct': round(loss_pct, 2)
     }
+
+
+def analyze_route_flood_risk(linestring_coords: List[List[float]]) -> float:
+    """
+    Analyze flood risk along a truck route represented as a LineString.
+    
+    Intersects the route with flood hazard data to calculate the total length
+    of the route that passes through areas with significant flood depth.
+    
+    Args:
+        linestring_coords: List of [lon, lat] coordinate pairs representing the route
+    
+    Returns:
+        float: Total length of route intersecting flood depth > 0.5m (in miles)
+    """
+    authenticate_gee()
+    
+    # Create LineString geometry from coordinates
+    line = ee.Geometry.LineString(linestring_coords)
+    
+    # Buffer the route by 100m to capture flood zones along the route
+    route_buffer = line.buffer(100)  # 100 meters on each side
+    
+    # Use Global Flood Database / JRC Global Surface Water for flood-prone areas
+    # Alternative: Use MERIT-Hydro or other flood hazard datasets
+    # For this implementation, we'll use JRC Global Surface Water occurrence
+    flood_occurrence = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence')
+    
+    # Create flood hazard mask: areas with >20% water occurrence are considered flood-prone
+    # This represents areas that flood more than 20% of the time (proxy for flood depth > 0.5m)
+    flood_mask = flood_occurrence.gt(20)
+    
+    # Calculate the area of intersection between the route buffer and flood zones
+    pixel_area = ee.Image.pixelArea()
+    flooded_area_m2 = flood_mask.multiply(pixel_area).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=route_buffer,
+        scale=30,  # 30m resolution (Landsat scale)
+        maxPixels=1e9
+    ).get('occurrence')
+    
+    # Convert to getInfo() to retrieve value
+    flooded_area_m2 = ee.Number(flooded_area_m2).getInfo() if flooded_area_m2 else 0
+    
+    # Calculate route length that intersects flood zones
+    # Assuming 100m buffer on each side (200m width total)
+    buffer_width_m = 200
+    if flooded_area_m2 > 0:
+        flooded_length_m = flooded_area_m2 / buffer_width_m
+    else:
+        flooded_length_m = 0
+    
+    # Convert meters to miles (1 mile = 1609.34 meters)
+    flooded_miles = flooded_length_m / 1609.34
+    
+    return round(flooded_miles, 2)
