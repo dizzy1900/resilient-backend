@@ -575,6 +575,54 @@ class GridRiskResponse(BaseModel):
     microgrid_capex: float = Field(..., description="Microgrid capital expenditure in USD")
 
 
+class PortfolioAsset(BaseModel):
+    """Individual asset in a portfolio."""
+    id: str = Field(..., description="Unique asset identifier")
+    property_name: str = Field(..., description="Property name")
+    location: str = Field(..., description="Geographic location")
+    asset_value: float = Field(..., gt=0, description="Asset value in USD")
+    primary_hazard: Literal["Flood", "Heat", "Coastal", "Supply Chain"] = Field(
+        ..., description="Primary climate hazard type"
+    )
+
+
+class PortfolioRequest(BaseModel):
+    """Request for Macro-Portfolio Risk analysis."""
+    assets: List[PortfolioAsset] = Field(..., min_length=1, description="List of portfolio assets")
+
+
+class CalculatedAsset(BaseModel):
+    """Asset with calculated risk metrics."""
+    id: str
+    property_name: str
+    location: str
+    asset_value: float
+    primary_hazard: str
+    value_at_risk: float
+    resilience_score: float
+    status: Literal["Critical", "Warning", "Secure"]
+
+
+class PortfolioSummary(BaseModel):
+    """Portfolio-level summary statistics."""
+    total_portfolio_value: float = Field(..., description="Total value of all assets in USD")
+    total_value_at_risk: float = Field(..., description="Total VaR across all assets in USD")
+    average_resilience_score: float = Field(..., description="Average resilience score (0-100)")
+
+
+class PortfolioVisualizations(BaseModel):
+    """Data for portfolio visualizations."""
+    var_by_hazard: Dict[str, float] = Field(..., description="VaR grouped by hazard type (for donut chart)")
+    top_at_risk_assets: List[CalculatedAsset] = Field(..., description="Top 5 assets by VaR (descending)")
+
+
+class PortfolioResponse(BaseModel):
+    """Response for Macro-Portfolio Risk analysis."""
+    summary: PortfolioSummary = Field(..., description="Portfolio-level summary statistics")
+    visualizations: PortfolioVisualizations = Field(..., description="Chart data for frontend visualizations")
+    ledger: List[CalculatedAsset] = Field(..., description="Full array of calculated assets")
+
+
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
 # CORS configuration - aggressively permissive for development phase
@@ -3269,6 +3317,136 @@ def calculate_grid_resilience(req: GridRiskRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail=f"Grid resilience analysis failed: {str(e)}"
+        ) from e
+
+
+@app.post("/api/v1/portfolio/analyze", response_model=PortfolioResponse)
+def analyze_portfolio(req: PortfolioRequest) -> dict:
+    """Analyze macro-portfolio risk across multiple assets with different climate hazards.
+    
+    This endpoint processes a portfolio of assets, calculates Value at Risk (VaR) based on
+    primary climate hazards, assigns resilience scores, and provides aggregated analytics
+    for executive dashboards and risk visualization.
+    
+    Risk Metrics by Hazard Type:
+    - Flood: 15% VaR (riverine/pluvial flooding damage)
+    - Heat: 5% VaR (HVAC failure, productivity loss)
+    - Coastal: 20% VaR (storm surge, sea level rise)
+    - Supply Chain: 10% VaR (logistics disruption, spoilage)
+    
+    Resilience Scoring:
+    - Score = 100 - (VaR percentage × 5)
+    - Critical: < 40 (high risk, immediate action needed)
+    - Warning: 40-70 (moderate risk, monitoring required)
+    - Secure: > 70 (low risk, minimal intervention)
+    
+    Use Cases:
+    - Portfolio managers assessing climate risk across real estate holdings
+    - Insurers pricing climate risk premiums by asset class
+    - CFOs prioritizing adaptation investments by ROI
+    - Board-level climate risk reporting (TCFD compliance)
+    
+    Example Request:
+    {
+        "assets": [
+            {
+                "id": "PROP-001",
+                "property_name": "Manhattan Data Center",
+                "location": "New York, NY",
+                "asset_value": 50000000.0,
+                "primary_hazard": "Flood"
+            },
+            {
+                "id": "PROP-002",
+                "property_name": "Phoenix Warehouse",
+                "location": "Phoenix, AZ",
+                "asset_value": 10000000.0,
+                "primary_hazard": "Heat"
+            }
+        ]
+    }
+    
+    Returns:
+    - summary: Portfolio totals (value, VaR, avg resilience)
+    - visualizations: Donut chart (VaR by hazard), Top 5 at-risk assets
+    - ledger: Full asset list with calculated metrics
+    """
+    try:
+        # Hazard-based VaR percentages (industry benchmarks)
+        HAZARD_VAR = {
+            "Flood": 0.15,      # 15% (riverine/pluvial flooding)
+            "Heat": 0.05,       # 5% (HVAC failure, heat stress)
+            "Coastal": 0.20,    # 20% (storm surge, SLR)
+            "Supply Chain": 0.10  # 10% (logistics disruption)
+        }
+        
+        calculated_assets = []
+        
+        # Process each asset
+        for asset in req.assets:
+            # Calculate Value at Risk
+            var_percentage = HAZARD_VAR[asset.primary_hazard]
+            value_at_risk = asset.asset_value * var_percentage
+            
+            # Calculate resilience score (0-100, inversely proportional to VaR)
+            # Formula: 100 - (VaR% × 5)
+            # Example: 15% VaR → 100 - 75 = 25 (Critical)
+            # Example: 5% VaR → 100 - 25 = 75 (Secure)
+            resilience_score = 100.0 - (var_percentage * 100.0 * 5.0)
+            
+            # Assign status based on resilience score
+            if resilience_score < 40:
+                status = "Critical"
+            elif resilience_score <= 70:
+                status = "Warning"
+            else:
+                status = "Secure"
+            
+            calculated_assets.append({
+                "id": asset.id,
+                "property_name": asset.property_name,
+                "location": asset.location,
+                "asset_value": asset.asset_value,
+                "primary_hazard": asset.primary_hazard,
+                "value_at_risk": round(value_at_risk, 2),
+                "resilience_score": round(resilience_score, 2),
+                "status": status
+            })
+        
+        # Aggregation Logic
+        # 1. Calculate totals
+        total_portfolio_value = sum(a.asset_value for a in req.assets)
+        total_value_at_risk = sum(a["value_at_risk"] for a in calculated_assets)
+        average_resilience_score = sum(a["resilience_score"] for a in calculated_assets) / len(calculated_assets)
+        
+        # 2. Group VaR by hazard type (for donut chart)
+        var_by_hazard = {}
+        for asset in calculated_assets:
+            hazard = asset["primary_hazard"]
+            var_by_hazard[hazard] = var_by_hazard.get(hazard, 0.0) + asset["value_at_risk"]
+        
+        # 3. Top 5 at-risk assets (sorted by VaR descending)
+        sorted_assets = sorted(calculated_assets, key=lambda x: x["value_at_risk"], reverse=True)
+        top_at_risk_assets = sorted_assets[:5]
+        
+        # Build response
+        return {
+            "summary": {
+                "total_portfolio_value": round(total_portfolio_value, 2),
+                "total_value_at_risk": round(total_value_at_risk, 2),
+                "average_resilience_score": round(average_resilience_score, 2)
+            },
+            "visualizations": {
+                "var_by_hazard": {k: round(v, 2) for k, v in var_by_hazard.items()},
+                "top_at_risk_assets": top_at_risk_assets
+            },
+            "ledger": calculated_assets
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Portfolio analysis failed: {str(e)}"
         ) from e
 
 
