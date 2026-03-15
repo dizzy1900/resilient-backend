@@ -644,6 +644,112 @@ class TimelapseResponse(BaseModel):
     layers: Dict[str, str] = Field(..., description="Year to XYZ tile URL mapping")
 
 
+class BenchmarkResponse(BaseModel):
+    """Response for Peer Benchmarking - industry climate risk metrics."""
+    sector: str = Field(..., description="Industry sector")
+    hazard_type: str = Field(..., description="Climate hazard type")
+    metric_name: str = Field(..., description="Benchmark metric name")
+    industry_average: float = Field(..., description="Industry average value (numeric)")
+    top_quartile_target: float = Field(..., description="Top quartile performance target (numeric)")
+    unit: str = Field(..., description="Unit of measurement (e.g., %, days)")
+    data_source: str = Field(..., description="Academic citation for benchmark data")
+
+
+# ==============================================================================
+# Peer Benchmarking - Industry Benchmarks Data
+# ==============================================================================
+_INDUSTRY_BENCHMARKS = []  # Loaded from CSV on startup
+
+
+def _parse_benchmark_value(value_str: str) -> Tuple[float, str]:
+    """
+    Parse benchmark value with unit (e.g., "13.8%" or "5.1 days").
+    
+    Args:
+        value_str: Raw value string from CSV (e.g., "13.8%", "5.1 days")
+    
+    Returns:
+        Tuple of (numeric_value, unit)
+        Example: ("13.8%") -> (13.8, "%")
+                 ("5.1 days") -> (5.1, "days")
+    """
+    value_str = value_str.strip()
+    
+    # Extract numeric part
+    numeric_str = ""
+    unit = ""
+    
+    for char in value_str:
+        if char.isdigit() or char == '.' or char == '-':
+            numeric_str += char
+        else:
+            # Rest is unit
+            unit = value_str[len(numeric_str):].strip()
+            break
+    
+    try:
+        numeric_value = float(numeric_str)
+    except ValueError:
+        raise ValueError(f"Could not parse numeric value from: {value_str}")
+    
+    return numeric_value, unit
+
+
+def load_industry_benchmarks():
+    """
+    Load industry benchmark data from CSV file on application startup.
+    
+    CSV Format:
+    - sector: Industry sector (e.g., "Agriculture", "Commercial Real Estate")
+    - hazard_type: Climate hazard (e.g., "Heat", "Flood", "Drought")
+    - metric_name: Benchmark metric description
+    - industry_average: Average performance with unit (e.g., "13.8%")
+    - top_quartile: Top quartile target with unit (e.g., "6.9%")
+    - data_source: Academic citation
+    
+    Data is stored in global _INDUSTRY_BENCHMARKS list for fast lookup.
+    """
+    global _INDUSTRY_BENCHMARKS
+    
+    csv_path = os.path.join(os.path.dirname(__file__), 'data', 'industry_benchmarks.csv')
+    
+    try:
+        # Load CSV with pandas
+        df = pd.read_csv(csv_path)
+        
+        # Parse each row
+        benchmarks = []
+        for _, row in df.iterrows():
+            # Parse industry_average and top_quartile
+            avg_value, avg_unit = _parse_benchmark_value(row['industry_average'])
+            top_value, top_unit = _parse_benchmark_value(row['top_quartile'])
+            
+            # Validate units match
+            if avg_unit != top_unit:
+                print(f"[Warning] Unit mismatch for {row['sector']} - {row['hazard_type']}: {avg_unit} vs {top_unit}")
+            
+            benchmark = {
+                'sector': row['sector'].strip(),
+                'hazard_type': row['hazard_type'].strip(),
+                'metric_name': row['metric_name'].strip(),
+                'industry_average': avg_value,
+                'top_quartile': top_value,
+                'unit': avg_unit,
+                'data_source': row['data_source'].strip()
+            }
+            benchmarks.append(benchmark)
+        
+        _INDUSTRY_BENCHMARKS = benchmarks
+        print(f"[Benchmark] Loaded {len(benchmarks)} industry benchmarks from CSV")
+    
+    except FileNotFoundError:
+        print(f"[Benchmark] ERROR: CSV file not found at {csv_path}")
+        _INDUSTRY_BENCHMARKS = []
+    except Exception as e:
+        print(f"[Benchmark] ERROR loading CSV: {e}")
+        _INDUSTRY_BENCHMARKS = []
+
+
 # ==============================================================================
 # Sovereign Risk - In-Memory Cache (24-hour expiration)
 # ==============================================================================
@@ -1069,6 +1175,12 @@ app.include_router(auth_router)
 async def _create_auth_tables():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+@app.on_event("startup")
+async def _load_benchmark_data():
+    """Load industry benchmark CSV data on application startup."""
+    load_industry_benchmarks()
 
 
 @app.get("/health")
@@ -4071,6 +4183,106 @@ def get_climate_timelapse(hazard_type: str) -> dict:
         raise HTTPException(
             status_code=500,
             detail=f"Climate timelapse calculation failed: {str(e)}"
+        ) from e
+
+
+@app.get("/api/v1/compliance/benchmark", response_model=BenchmarkResponse)
+def get_industry_benchmark(sector: str, hazard_type: str) -> dict:
+    """Get peer benchmarking data for regulatory reporting and TCFD compliance.
+    
+    This endpoint provides industry-standard climate risk benchmarks with academic
+    citations for regulatory reporting, TCFD disclosures, and peer comparisons.
+    
+    Query Parameters:
+    - sector: Industry sector (case-insensitive)
+      Examples: "Agriculture", "Commercial Real Estate", "Logistics"
+    - hazard_type: Climate hazard type (case-insensitive)
+      Examples: "Heat", "Flood", "Drought"
+    
+    Data Sources:
+    - Academic peer-reviewed publications (Nature, PNAS, etc.)
+    - International organizations (ILO, Swiss Re Institute)
+    - Cited research with publication year
+    
+    Benchmark Metrics:
+    - Industry Average: Typical performance across sector
+    - Top Quartile Target: Best-in-class performance benchmark
+    
+    Use Cases:
+    - TCFD Scenario Analysis: Compare against industry standards
+    - Board Reporting: Show where company stands vs. peers
+    - Regulatory Compliance: Cite academic benchmarks in disclosures
+    - Strategic Planning: Set resilience targets based on top quartile
+    
+    Example Request:
+    GET /api/v1/compliance/benchmark?sector=Agriculture&hazard_type=Heat
+    
+    Example Response:
+    {
+        "sector": "Agriculture",
+        "hazard_type": "Heat",
+        "metric_name": "Expected Yield Loss (Wheat) per 1C Warming",
+        "industry_average": 6.0,
+        "top_quartile_target": 3.0,
+        "unit": "%",
+        "data_source": "Zhao et al. (2017), PNAS"
+    }
+    
+    Available Sectors:
+    - Commercial Real Estate
+    - Agriculture
+    - Logistics
+    - Industrial Manufacturing
+    - Construction/Outdoor Labor
+    - Insurance
+    - Energy
+    
+    Available Hazard Types:
+    - Heat
+    - Flood
+    - Drought
+    
+    Returns:
+        Benchmark data with numeric values and academic citation
+    """
+    try:
+        # Case-insensitive matching
+        sector_lower = sector.strip().lower()
+        hazard_lower = hazard_type.strip().lower()
+        
+        # Search for matching benchmark
+        matching_benchmark = None
+        for benchmark in _INDUSTRY_BENCHMARKS:
+            if (benchmark['sector'].lower() == sector_lower and 
+                benchmark['hazard_type'].lower() == hazard_lower):
+                matching_benchmark = benchmark
+                break
+        
+        # Handle no match found
+        if matching_benchmark is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Benchmark data not available for this sector and hazard."
+            )
+        
+        return {
+            "sector": matching_benchmark['sector'],
+            "hazard_type": matching_benchmark['hazard_type'],
+            "metric_name": matching_benchmark['metric_name'],
+            "industry_average": matching_benchmark['industry_average'],
+            "top_quartile_target": matching_benchmark['top_quartile'],
+            "unit": matching_benchmark['unit'],
+            "data_source": matching_benchmark['data_source']
+        }
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Benchmark lookup failed: {str(e)}"
         ) from e
 
 

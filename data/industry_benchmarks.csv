@@ -1,0 +1,9 @@
+sector,hazard_type,metric_name,industry_average,top_quartile,data_source
+Commercial Real Estate,Heat,Cooling Energy Intensity (EUI) Increase per 1C Warming,13.8%,6.9%,"Wang et al. (2023), Nature Communications"
+Agriculture,Drought,Expected Yield Loss (Maize) per 1C Warming,7.4%,3.7%,"Zhao et al. (2017), PNAS"
+Agriculture,Heat,Expected Yield Loss (Wheat) per 1C Warming,6.0%,3.0%,"Zhao et al. (2017), PNAS"
+Logistics,Flood,Annual Port Downtime (High Risk),5.1 days,1.0 days,"Verschuur et al. (2023), Communications Earth & Environment"
+Industrial Manufacturing,Flood,Facility Shutdown Duration,14 days,2 days,"Friedland et al. (2023), Frontiers in Water"
+Construction/Outdoor Labor,Heat,Working Hours Lost to Heat Stress,2.2%,0.8%,"ILO (2019), Working on a Warmer Planet"
+Insurance,Flood,Annual Growth in Insured Flood Losses,6.0%,2.5%,"Swiss Re Institute (2025), sigma 1/2025"
+Energy,Heat,Thermal Power Plant Efficiency Loss per 1C Warming,0.5%,0.2%,"Petrakopoulou et al. (2020), Journal of Cleaner Production"
