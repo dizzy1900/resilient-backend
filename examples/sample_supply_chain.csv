@@ -1,0 +1,9 @@
+source_id,source_label,source_type,target_id,target_label,target_type
+taiwan_fab,Taiwan Semiconductor Fab,Supplier,shenzhen_assembly,Shenzhen Assembly Plant,Manufacturer
+shenzhen_assembly,Shenzhen Assembly Plant,Manufacturer,port_shanghai,Port of Shanghai,Port
+port_shanghai,Port of Shanghai,Port,port_la,Port of Los Angeles,Port
+port_la,Port of Los Angeles,Port,chicago_dc,Chicago Distribution Center,Distribution
+chicago_dc,Chicago Distribution Center,Distribution,dallas_warehouse,Dallas Regional Warehouse,Distribution
+chicago_dc,Chicago Distribution Center,Distribution,miami_warehouse,Miami Regional Warehouse,Distribution
+chicago_dc,Chicago Distribution Center,Distribution,ny_retail,New York Retail Hub,Distribution
+dallas_warehouse,Dallas Regional Warehouse,Distribution,ny_retail,New York Retail Hub,Distribution

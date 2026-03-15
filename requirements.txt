@@ -53,6 +53,9 @@ scikit-learn==1.8.0    # ML algorithms and surrogate models
 joblib==1.5.3          # Parallel computing and model persistence
 threadpoolctl==3.6.0   # Thread pool control for numpy/scipy
 
+# Graph Analysis
+networkx==3.2.1        # Graph algorithms for supply chain cascading failures
+
 # HTTP & Networking
 requests==2.32.5
 urllib3==2.6.3
@@ -102,6 +105,7 @@ bcrypt==4.2.1
 PyJWT==2.9.0
 SQLAlchemy==2.0.36
 aiosqlite==0.20.0
+greenlet==3.0.3          # Required for async SQLAlchemy operations
 
 # URI Templates (Google APIs)
 uritemplate==4.2.0

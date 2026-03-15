@@ -69,7 +69,11 @@ from flood_engine import (
 from financial_engine import calculate_roi_metrics, calculate_npv, calculate_payback_period
 
 from auth import router as auth_router
-from database import Base, engine
+from database import Base, engine, async_session
+from models import SupplyChainNode, SupplyChainEdge
+import networkx as nx
+import uuid as uuid_lib
+import csv
 
 # ---------------------------------------------------------------------------
 # In-process ML models (ported from Flask)
@@ -577,8 +581,17 @@ class GridRiskResponse(BaseModel):
     microgrid_capex: float = Field(..., description="Microgrid capital expenditure in USD")
 
 
+class NetworkUploadResponse(BaseModel):
+    """Response for network upload."""
+    network_id: str = Field(..., description="Generated network ID (UUID)")
+    nodes_created: int = Field(..., description="Number of nodes created")
+    edges_created: int = Field(..., description="Number of edges created")
+    message: str = Field(..., description="Success message")
+
+
 class CascadeRequest(BaseModel):
     """Request for Supply Chain Network Cascade simulation."""
+    network_id: str = Field(..., description="Network ID to simulate (from upload endpoint)")
     disrupted_node_id: Optional[str] = Field(None, description="Node ID to disrupt (e.g., 'port_la'). If None, returns baseline graph.")
     hazard_severity: Optional[Literal["Moderate", "Severe", "Catastrophic"]] = Field(
         None, description="Hazard severity level affecting downstream propagation"
@@ -3895,8 +3908,151 @@ def calculate_grid_resilience(req: GridRiskRequest) -> dict:
 
 
 # ==============================================================================
-# Supply Chain Network Graph - Cascading Failure Simulation
+# Supply Chain Network Graph - Dynamic Database-Backed Architecture
 # ==============================================================================
+
+@app.post("/api/v1/supply-chain/upload", response_model=NetworkUploadResponse)
+async def upload_supply_chain_network(file: UploadFile = File(...)) -> dict:
+    """
+    Upload a CSV file to create a new supply chain network.
+    
+    **CSV Format:**
+    The CSV must contain these columns (header row required):
+    - `source_id`: Source node identifier (e.g., "taiwan_fab")
+    - `source_label`: Source node display name (e.g., "Taiwan Semiconductor Fab")
+    - `source_type`: Source node type (e.g., "Supplier")
+    - `target_id`: Target node identifier (e.g., "shenzhen_assembly")
+    - `target_label`: Target node display name (e.g., "Shenzhen Assembly Plant")
+    - `target_type`: Target node type (e.g., "Manufacturer")
+    
+    **Example CSV:**
+    ```csv
+    source_id,source_label,source_type,target_id,target_label,target_type
+    taiwan_fab,Taiwan Semiconductor Fab,Supplier,shenzhen_assembly,Shenzhen Assembly Plant,Manufacturer
+    shenzhen_assembly,Shenzhen Assembly Plant,Manufacturer,port_shanghai,Port of Shanghai,Port
+    ```
+    
+    **Process:**
+    1. Parse CSV to extract unique nodes and directed edges
+    2. Generate a new `network_id` (UUID)
+    3. Save nodes and edges to database
+    4. Return network_id for use in cascade simulation
+    
+    **Returns:**
+    - `network_id`: UUID for this network (use in simulate-cascade endpoint)
+    - `nodes_created`: Count of unique nodes
+    - `edges_created`: Count of directed edges
+    
+    **Use Cases:**
+    - Upload custom enterprise supply chain topology
+    - Model multi-tier supplier networks (100+ nodes)
+    - Import third-party supply chain data (e.g., from ERP systems)
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(
+                status_code=400,
+                detail="File must be a CSV file (.csv extension required)"
+            )
+        
+        # Read CSV content
+        contents = await file.read()
+        csv_text = contents.decode('utf-8')
+        
+        # Parse CSV
+        csv_reader = csv.DictReader(io.StringIO(csv_text))
+        
+        # Validate required columns
+        required_columns = ['source_id', 'source_label', 'source_type', 'target_id', 'target_label', 'target_type']
+        if not all(col in csv_reader.fieldnames for col in required_columns):
+            raise HTTPException(
+                status_code=400,
+                detail=f"CSV must contain columns: {', '.join(required_columns)}"
+            )
+        
+        # Generate new network ID
+        network_id = str(uuid_lib.uuid4())
+        
+        # Extract unique nodes and edges
+        nodes_dict = {}  # {node_id: {label, type}}
+        edges_list = []
+        
+        for row in csv_reader:
+            # Extract source node
+            source_id = row['source_id'].strip()
+            source_label = row['source_label'].strip()
+            source_type = row['source_type'].strip()
+            
+            # Extract target node
+            target_id = row['target_id'].strip()
+            target_label = row['target_label'].strip()
+            target_type = row['target_type'].strip()
+            
+            # Add nodes to dictionary (deduplicate)
+            if source_id not in nodes_dict:
+                nodes_dict[source_id] = {'label': source_label, 'type': source_type}
+            if target_id not in nodes_dict:
+                nodes_dict[target_id] = {'label': target_label, 'type': target_type}
+            
+            # Add edge
+            edges_list.append({
+                'source': source_id,
+                'target': target_id
+            })
+        
+        # Validate we have data
+        if not nodes_dict:
+            raise HTTPException(
+                status_code=400,
+                detail="CSV contains no valid nodes"
+            )
+        
+        if not edges_list:
+            raise HTTPException(
+                status_code=400,
+                detail="CSV contains no valid edges"
+            )
+        
+        # Save to database
+        async with async_session() as session:
+            # Create node records
+            for node_id, node_data in nodes_dict.items():
+                node = SupplyChainNode(
+                    network_id=network_id,
+                    node_id=node_id,
+                    label=node_data['label'],
+                    node_type=node_data['type'],
+                    baseline_status='Secure'
+                )
+                session.add(node)
+            
+            # Create edge records
+            for edge_data in edges_list:
+                edge = SupplyChainEdge(
+                    network_id=network_id,
+                    source_node_id=edge_data['source'],
+                    target_node_id=edge_data['target']
+                )
+                session.add(edge)
+            
+            await session.commit()
+        
+        return {
+            "network_id": network_id,
+            "nodes_created": len(nodes_dict),
+            "edges_created": len(edges_list),
+            "message": f"Successfully created network with {len(nodes_dict)} nodes and {len(edges_list)} edges"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload network: {str(e)}"
+        ) from e
+
 
 def _build_base_supply_chain_graph() -> Tuple[List[dict], List[dict]]:
     """
@@ -4000,7 +4156,7 @@ def _simulate_cascade_failure(
 
 
 @app.post("/api/v1/supply-chain/simulate-cascade", response_model=CascadeResponse)
-def simulate_supply_chain_cascade(req: CascadeRequest) -> dict:
+async def simulate_supply_chain_cascade(req: CascadeRequest) -> dict:
     """
     Simulate cascading failures in a supply chain network graph.
     
@@ -4058,40 +4214,81 @@ def simulate_supply_chain_cascade(req: CascadeRequest) -> dict:
     ```
     
     Returns:
-    - nodes: Array of nodes with React Flow structure
-    - edges: Array of edges showing disruption cascade
+    - nodes: Array of nodes with React Flow structure (dynamically loaded from database)
+    - edges: Array of edges showing disruption cascade (computed via NetworkX)
+    
+    **NetworkX Integration:**
+    Uses `nx.DiGraph()` for graph construction and `nx.descendants()` for cascade traversal.
     """
     try:
-        # Build the base supply chain graph
-        nodes, edges = _build_base_supply_chain_graph()
+        # Load network from database
+        async with async_session() as session:
+            from sqlalchemy import select
+            
+            # Query nodes for this network
+            nodes_result = await session.execute(
+                select(SupplyChainNode).where(SupplyChainNode.network_id == req.network_id)
+            )
+            db_nodes = nodes_result.scalars().all()
+            
+            if not db_nodes:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Network {req.network_id} not found"
+                )
+            
+            # Query edges for this network
+            edges_result = await session.execute(
+                select(SupplyChainEdge).where(SupplyChainEdge.network_id == req.network_id)
+            )
+            db_edges = edges_result.scalars().all()
+            
+            if not db_edges:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Network {req.network_id} has no edges"
+                )
+        
+        # Build NetworkX directed graph
+        G = nx.DiGraph()
+        
+        # Add nodes with attributes
+        node_data_map = {}  # {node_id: {label, type, status}}
+        for node in db_nodes:
+            G.add_node(node.node_id)
+            node_data_map[node.node_id] = {
+                'label': node.label,
+                'type': node.node_type,
+                'status': node.baseline_status
+            }
+        
+        # Add edges
+        for edge in db_edges:
+            G.add_edge(edge.source_node_id, edge.target_node_id)
         
         # If no disruption requested, return baseline graph
         if not req.disrupted_node_id:
-            # Initialize all edges with is_disrupted = False
-            for edge in edges:
-                edge["is_disrupted"] = False
-            
             # Convert to React Flow format
             react_flow_nodes = [
                 {
-                    "id": node["id"],
+                    "id": node_id,
                     "data": {
-                        "label": node["label"],
-                        "status": node["status"],
-                        "type": node["type"]
+                        "label": data['label'],
+                        "status": data['status'],
+                        "type": data['type']
                     }
                 }
-                for node in nodes
+                for node_id, data in node_data_map.items()
             ]
             
             react_flow_edges = [
                 {
-                    "id": edge["id"],
-                    "source": edge["source"],
-                    "target": edge["target"],
-                    "is_disrupted": edge.get("is_disrupted", False)
+                    "id": f"e{i}",
+                    "source": source,
+                    "target": target,
+                    "is_disrupted": False
                 }
-                for edge in edges
+                for i, (source, target) in enumerate(G.edges(), 1)
             ]
             
             return {
@@ -4099,35 +4296,59 @@ def simulate_supply_chain_cascade(req: CascadeRequest) -> dict:
                 "edges": react_flow_edges
             }
         
-        # Simulate cascade failure
-        updated_nodes, updated_edges = _simulate_cascade_failure(
-            nodes,
-            edges,
-            req.disrupted_node_id,
-            req.hazard_severity or "Moderate"
-        )
+        # Validate disrupted node exists
+        if req.disrupted_node_id not in G:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node '{req.disrupted_node_id}' not found in network {req.network_id}"
+            )
+        
+        # Use NetworkX to find all descendants (downstream nodes)
+        try:
+            downstream_nodes = nx.descendants(G, req.disrupted_node_id)
+        except nx.NetworkXError:
+            # Node has no descendants
+            downstream_nodes = set()
+        
+        # Mark disrupted node as Critical
+        node_data_map[req.disrupted_node_id]['status'] = 'Critical'
+        
+        # Find immediate downstream nodes (direct successors)
+        immediate_downstream = set(G.successors(req.disrupted_node_id))
+        
+        # Apply severity-based status updates to immediate downstream nodes
+        for node_id in immediate_downstream:
+            if req.hazard_severity == 'Catastrophic':
+                node_data_map[node_id]['status'] = 'Critical'
+            else:  # Moderate or Severe
+                node_data_map[node_id]['status'] = 'Warning'
+        
+        # Mark disrupted edges (edges originating from disrupted node)
+        disrupted_edges = set()
+        for target in G.successors(req.disrupted_node_id):
+            disrupted_edges.add((req.disrupted_node_id, target))
         
         # Convert to React Flow format
         react_flow_nodes = [
             {
-                "id": node["id"],
+                "id": node_id,
                 "data": {
-                    "label": node["label"],
-                    "status": node["status"],
-                    "type": node["type"]
+                    "label": data['label'],
+                    "status": data['status'],
+                    "type": data['type']
                 }
             }
-            for node in updated_nodes
+            for node_id, data in node_data_map.items()
         ]
         
         react_flow_edges = [
             {
-                "id": edge["id"],
-                "source": edge["source"],
-                "target": edge["target"],
-                "is_disrupted": edge.get("is_disrupted", False)
+                "id": f"e{i}",
+                "source": source,
+                "target": target,
+                "is_disrupted": (source, target) in disrupted_edges
             }
-            for edge in updated_edges
+            for i, (source, target) in enumerate(G.edges(), 1)
         ]
         
         return {
@@ -4135,6 +4356,8 @@ def simulate_supply_chain_cascade(req: CascadeRequest) -> dict:
             "edges": react_flow_edges
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
