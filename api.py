@@ -577,6 +577,41 @@ class GridRiskResponse(BaseModel):
     microgrid_capex: float = Field(..., description="Microgrid capital expenditure in USD")
 
 
+class CascadeRequest(BaseModel):
+    """Request for Supply Chain Network Cascade simulation."""
+    disrupted_node_id: Optional[str] = Field(None, description="Node ID to disrupt (e.g., 'port_la'). If None, returns baseline graph.")
+    hazard_severity: Optional[Literal["Moderate", "Severe", "Catastrophic"]] = Field(
+        None, description="Hazard severity level affecting downstream propagation"
+    )
+
+
+class CascadeNodeData(BaseModel):
+    """Node data for React Flow graph."""
+    label: str = Field(..., description="Display label for the node")
+    status: Literal["Secure", "Warning", "Critical"] = Field(..., description="Operational status")
+    type: str = Field(..., description="Node type (e.g., 'Supplier', 'Manufacturer', 'Port', 'Distribution')")
+
+
+class CascadeNode(BaseModel):
+    """Node in React Flow format."""
+    id: str = Field(..., description="Unique node identifier")
+    data: CascadeNodeData = Field(..., description="Node data payload")
+
+
+class CascadeEdge(BaseModel):
+    """Edge in React Flow format."""
+    id: str = Field(..., description="Unique edge identifier")
+    source: str = Field(..., description="Source node ID")
+    target: str = Field(..., description="Target node ID")
+    is_disrupted: bool = Field(False, description="Whether this edge is disrupted by cascade")
+
+
+class CascadeResponse(BaseModel):
+    """Response for Supply Chain Network Cascade simulation."""
+    nodes: List[CascadeNode] = Field(..., description="Array of nodes in React Flow format")
+    edges: List[CascadeEdge] = Field(..., description="Array of edges in React Flow format")
+
+
 class PortfolioAsset(BaseModel):
     """Individual asset in a portfolio."""
     id: str = Field(..., description="Unique asset identifier")
@@ -3856,6 +3891,254 @@ def calculate_grid_resilience(req: GridRiskRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail=f"Grid resilience analysis failed: {str(e)}"
+        ) from e
+
+
+# ==============================================================================
+# Supply Chain Network Graph - Cascading Failure Simulation
+# ==============================================================================
+
+def _build_base_supply_chain_graph() -> Tuple[List[dict], List[dict]]:
+    """
+    Build the baseline supply chain network graph.
+    
+    Returns:
+        Tuple of (nodes, edges) where:
+        - nodes: List of node dictionaries with id, label, type, status
+        - edges: List of edge dictionaries with id, source, target
+    """
+    nodes = [
+        {"id": "taiwan_fab", "label": "Taiwan Semiconductor Fab", "type": "Supplier", "status": "Secure"},
+        {"id": "shenzhen_assembly", "label": "Shenzhen Assembly Plant", "type": "Manufacturer", "status": "Secure"},
+        {"id": "port_shanghai", "label": "Port of Shanghai", "type": "Port", "status": "Secure"},
+        {"id": "port_la", "label": "Port of Los Angeles", "type": "Port", "status": "Secure"},
+        {"id": "chicago_dc", "label": "Chicago Distribution Center", "type": "Distribution", "status": "Secure"},
+        {"id": "dallas_warehouse", "label": "Dallas Regional Warehouse", "type": "Distribution", "status": "Secure"},
+        {"id": "miami_warehouse", "label": "Miami Regional Warehouse", "type": "Distribution", "status": "Secure"},
+        {"id": "ny_retail", "label": "New York Retail Hub", "type": "Distribution", "status": "Secure"},
+    ]
+    
+    edges = [
+        {"id": "e1", "source": "taiwan_fab", "target": "shenzhen_assembly"},
+        {"id": "e2", "source": "shenzhen_assembly", "target": "port_shanghai"},
+        {"id": "e3", "source": "port_shanghai", "target": "port_la"},
+        {"id": "e4", "source": "port_la", "target": "chicago_dc"},
+        {"id": "e5", "source": "chicago_dc", "target": "dallas_warehouse"},
+        {"id": "e6", "source": "chicago_dc", "target": "miami_warehouse"},
+        {"id": "e7", "source": "chicago_dc", "target": "ny_retail"},
+        {"id": "e8", "source": "dallas_warehouse", "target": "ny_retail"},
+    ]
+    
+    return nodes, edges
+
+
+def _simulate_cascade_failure(
+    nodes: List[dict],
+    edges: List[dict],
+    disrupted_node_id: str,
+    hazard_severity: str
+) -> Tuple[List[dict], List[dict]]:
+    """
+    Simulate cascading failure through the supply chain network.
+    
+    Algorithm:
+    1. Mark the disrupted node as "Critical"
+    2. Find all edges originating from the disrupted node
+    3. Mark those edges as disrupted
+    4. Find all immediate downstream nodes connected to disrupted edges
+    5. Downgrade downstream node status based on hazard severity
+    
+    Args:
+        nodes: List of node dictionaries
+        edges: List of edge dictionaries
+        disrupted_node_id: ID of the node to disrupt
+        hazard_severity: One of "Moderate", "Severe", "Catastrophic"
+    
+    Returns:
+        Tuple of (updated_nodes, updated_edges)
+    """
+    # Create working copies
+    updated_nodes = [node.copy() for node in nodes]
+    updated_edges = [edge.copy() for edge in edges]
+    
+    # Step 1: Find and mark the disrupted node
+    disrupted_node = None
+    for node in updated_nodes:
+        if node["id"] == disrupted_node_id:
+            node["status"] = "Critical"
+            disrupted_node = node
+            break
+    
+    if not disrupted_node:
+        # If node not found, return unchanged
+        return updated_nodes, updated_edges
+    
+    # Step 2: Find all edges originating from disrupted node and mark them
+    disrupted_edge_ids = []
+    for edge in updated_edges:
+        if edge["source"] == disrupted_node_id:
+            edge["is_disrupted"] = True
+            disrupted_edge_ids.append(edge["id"])
+    
+    # Step 3: Find all downstream nodes connected to disrupted edges
+    downstream_node_ids = set()
+    for edge in updated_edges:
+        if edge.get("is_disrupted", False):
+            downstream_node_ids.add(edge["target"])
+    
+    # Step 4: Update downstream node statuses based on hazard severity
+    for node in updated_nodes:
+        if node["id"] in downstream_node_ids:
+            if hazard_severity == "Catastrophic":
+                node["status"] = "Critical"
+            elif hazard_severity == "Severe":
+                node["status"] = "Warning"
+            else:  # Moderate
+                node["status"] = "Warning"
+    
+    return updated_nodes, updated_edges
+
+
+@app.post("/api/v1/supply-chain/simulate-cascade", response_model=CascadeResponse)
+def simulate_supply_chain_cascade(req: CascadeRequest) -> dict:
+    """
+    Simulate cascading failures in a supply chain network graph.
+    
+    This endpoint models how disruptions propagate through a multi-tier supply chain,
+    visualizing downstream impacts on manufacturing, logistics, and distribution nodes.
+    
+    **Base Network Structure:**
+    - 8 nodes spanning: Suppliers → Manufacturers → Ports → Distribution
+    - Example flow: Taiwan Fab → Shenzhen Assembly → Port of LA → Chicago DC → Regional Warehouses
+    
+    **Cascading Failure Logic:**
+    1. If `disrupted_node_id` is provided, mark that node as "Critical"
+    2. All edges originating from the disrupted node are marked `is_disrupted = True`
+    3. Immediate downstream nodes connected to disrupted edges have status downgraded:
+       - **Moderate**: Downstream nodes → "Warning"
+       - **Severe**: Downstream nodes → "Warning"  
+       - **Catastrophic**: Downstream nodes → "Critical"
+    
+    **React Flow Output Format:**
+    - `nodes`: Array of `{id, data: {label, status, type}}`
+    - `edges`: Array of `{id, source, target, is_disrupted}`
+    
+    **Use Cases:**
+    - Supply chain resilience planning: Identify critical single points of failure
+    - Port disruption scenario analysis (typhoons, labor strikes, geopolitical events)
+    - Manufacturing risk assessment for semiconductor/electronics supply chains
+    - Insurance underwriting for supply chain disruption policies
+    
+    **Example Request (Baseline):**
+    ```json
+    {}
+    ```
+    
+    **Example Request (Disruption):**
+    ```json
+    {
+        "disrupted_node_id": "port_la",
+        "hazard_severity": "Severe"
+    }
+    ```
+    
+    **Response:**
+    ```json
+    {
+        "nodes": [
+            {"id": "port_la", "data": {"label": "Port of Los Angeles", "status": "Critical", "type": "Port"}},
+            {"id": "chicago_dc", "data": {"label": "Chicago Distribution Center", "status": "Warning", "type": "Distribution"}},
+            ...
+        ],
+        "edges": [
+            {"id": "e4", "source": "port_la", "target": "chicago_dc", "is_disrupted": true},
+            ...
+        ]
+    }
+    ```
+    
+    Returns:
+    - nodes: Array of nodes with React Flow structure
+    - edges: Array of edges showing disruption cascade
+    """
+    try:
+        # Build the base supply chain graph
+        nodes, edges = _build_base_supply_chain_graph()
+        
+        # If no disruption requested, return baseline graph
+        if not req.disrupted_node_id:
+            # Initialize all edges with is_disrupted = False
+            for edge in edges:
+                edge["is_disrupted"] = False
+            
+            # Convert to React Flow format
+            react_flow_nodes = [
+                {
+                    "id": node["id"],
+                    "data": {
+                        "label": node["label"],
+                        "status": node["status"],
+                        "type": node["type"]
+                    }
+                }
+                for node in nodes
+            ]
+            
+            react_flow_edges = [
+                {
+                    "id": edge["id"],
+                    "source": edge["source"],
+                    "target": edge["target"],
+                    "is_disrupted": edge.get("is_disrupted", False)
+                }
+                for edge in edges
+            ]
+            
+            return {
+                "nodes": react_flow_nodes,
+                "edges": react_flow_edges
+            }
+        
+        # Simulate cascade failure
+        updated_nodes, updated_edges = _simulate_cascade_failure(
+            nodes,
+            edges,
+            req.disrupted_node_id,
+            req.hazard_severity or "Moderate"
+        )
+        
+        # Convert to React Flow format
+        react_flow_nodes = [
+            {
+                "id": node["id"],
+                "data": {
+                    "label": node["label"],
+                    "status": node["status"],
+                    "type": node["type"]
+                }
+            }
+            for node in updated_nodes
+        ]
+        
+        react_flow_edges = [
+            {
+                "id": edge["id"],
+                "source": edge["source"],
+                "target": edge["target"],
+                "is_disrupted": edge.get("is_disrupted", False)
+            }
+            for edge in updated_edges
+        ]
+        
+        return {
+            "nodes": react_flow_nodes,
+            "edges": react_flow_edges
+        }
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Supply chain cascade simulation failed: {str(e)}"
         ) from e
 
 
