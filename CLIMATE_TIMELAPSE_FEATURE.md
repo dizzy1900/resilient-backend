@@ -60,17 +60,25 @@ Climate projections generated for 4 key milestone years:
 **Visualization Parameters:**
 ```python
 {
-    'min': 20,  # 20°C
-    'max': 45,  # 45°C
-    'palette': ['#ffffcc', '#fd8d3c', '#e31a1c', '#800026']
+    'min': 28,  # 28°C threshold (mask below this)
+    'max': 45,  # 45°C extreme heat
+    'palette': ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026']
 }
 ```
 
+**Masking Logic:**
+```python
+# Only show hazardous heat (> 28°C)
+masked_temp = projected_temp.updateMask(projected_temp.gte(28))
+```
+
 **Color Scale:**
-- `#ffffcc` (Pale Yellow): 20°C - Cool temperatures
-- `#fd8d3c` (Orange): 30°C - Moderate heat
-- `#e31a1c` (Red): 38°C - High heat
-- `#800026` (Dark Red): 45°C - Extreme heat
+- Transparent: < 28°C (safe/comfortable zones)
+- `#ffffb2` (Light Yellow): 28°C - Threshold
+- `#fecc5c` (Yellow): 32°C - Elevated heat
+- `#fd8d3c` (Orange): 36°C - High heat
+- `#f03b20` (Red): 40°C - Very high heat
+- `#bd0026` (Dark Red): 45°C - Extreme heat
 
 **Projection Logic:**
 ```python
@@ -97,17 +105,25 @@ warming_offset = (target_year - 2020) * 0.2  # °C per year
 **Visualization Parameters:**
 ```python
 {
-    'min': 0,    # 0% water occurrence
+    'min': 10,   # 10% threshold (mask below this)
     'max': 100,  # 100% water occurrence
-    'palette': ['#ffffff', '#6baed6', '#2171b5', '#08306b']
+    'palette': ['#c6dbef', '#6baed6', '#2171b5', '#08519c', '#08306b']
 }
 ```
 
+**Masking Logic:**
+```python
+# Only show flood-prone areas (> 10% occurrence)
+masked_flood = projected_flood.updateMask(projected_flood.gte(10))
+```
+
 **Color Scale:**
-- `#ffffff` (White): 0% - No flooding
+- Transparent: < 10% occurrence (safe/dry zones)
+- `#c6dbef` (Very Light Blue): 10% - Threshold
 - `#6baed6` (Light Blue): 30% - Occasional flooding
-- `#2171b5` (Blue): 60% - Frequent flooding
-- `#08306b` (Dark Blue): 100% - Permanent water
+- `#2171b5` (Blue): 50% - Moderate flooding
+- `#08519c` (Dark Blue): 75% - Frequent flooding
+- `#08306b` (Darkest Blue): 100% - Permanent water
 
 **Projection Logic:**
 ```python

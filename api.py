@@ -889,6 +889,7 @@ def _map_fao_to_iso(fao_code: int, country_name: str) -> str:
 
 # ==============================================================================
 # Climate Time-Lapse - In-Memory Cache (24-hour expiration)
+# NOTE: Cache cleared 2026-03-12 to regenerate masked tiles
 # ==============================================================================
 _TIMELAPSE_CACHE = {}  # Key: hazard_type, Value: {"data": layers_dict, "timestamp": datetime}
 
@@ -957,10 +958,19 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
             # and add synthetic warming for future years
             baseline_year = 2020
             
+            # Load baseline temperature (mean annual)
+            baseline_temp = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY') \
+                .filterDate(f'{baseline_year}-01-01', f'{baseline_year}-12-31') \
+                .select('temperature_2m') \
+                .mean() \
+                .subtract(273.15)  # Convert Kelvin to Celsius
+            
+            # Refined visualization parameters with transparent low values
+            # Show only areas with significant warming (> 28°C threshold)
             vis_params = {
-                'min': 20,    # 20°C
-                'max': 45,    # 45°C
-                'palette': ['#ffffcc', '#fd8d3c', '#e31a1c', '#800026']  # Yellow -> Red
+                'min': 28,    # Mask below 28°C (comfortable baseline)
+                'max': 45,    # 45°C extreme heat
+                'palette': ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026']  # Yellow -> Red
             }
             
             layers = {}
@@ -969,38 +979,36 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
                 # Synthetic warming: +0.2°C per year from baseline
                 warming_offset = (year - baseline_year) * 0.2
                 
-                # Load ERA5 Land temperature (mean annual)
-                # In production, this would be NASA NEX-GDDP filtered by year
-                temperature = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY') \
-                    .filterDate(f'{baseline_year}-01-01', f'{baseline_year}-12-31') \
-                    .select('temperature_2m') \
-                    .mean() \
-                    .subtract(273.15)  # Convert Kelvin to Celsius
-                
                 # Add warming projection
-                projected_temp = temperature.add(warming_offset)
+                projected_temp = baseline_temp.add(warming_offset)
+                
+                # CRITICAL: Apply mask to show only hazardous heat (> 28°C)
+                # This makes safe/cool pixels transparent
+                masked_temp = projected_temp.updateMask(projected_temp.gte(vis_params['min']))
                 
                 # Generate Map ID with visualization parameters
-                map_id = projected_temp.getMapId(vis_params)
+                map_id = masked_temp.getMapId(vis_params)
                 
                 # Extract tile URL
                 tile_url = map_id['tile_fetcher'].url_format
                 
                 layers[str(year)] = tile_url
-                print(f"[Timelapse heat] Generated tile URL for {year}")
+                print(f"[Timelapse heat] Generated masked tile URL for {year}")
         
         elif hazard_type == "flood":
             # JRC Global Surface Water - historical flood occurrence
             # For future projections, use increasing occurrence % as proxy
             
-            vis_params = {
-                'min': 0,      # 0% water occurrence
-                'max': 100,    # 100% water occurrence
-                'palette': ['#ffffff', '#6baed6', '#2171b5', '#08306b']  # White -> Blue
-            }
-            
             # Load JRC base dataset
             base_flood = ee.Image('JRC/GSW1_4/GlobalSurfaceWater').select('occurrence')
+            
+            # Refined visualization parameters with transparent safe zones
+            # Show only areas with significant flood risk (> 10% occurrence)
+            vis_params = {
+                'min': 10,     # Mask below 10% occurrence (safe zones)
+                'max': 100,    # 100% water occurrence (permanent water)
+                'palette': ['#c6dbef', '#6baed6', '#2171b5', '#08519c', '#08306b']  # Light Blue -> Dark Blue
+            }
             
             layers = {}
             
@@ -1011,14 +1019,18 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
                 # Project future flood occurrence
                 projected_flood = base_flood.add(flood_increase).clamp(0, 100)
                 
-                # Generate Map ID
-                map_id = projected_flood.getMapId(vis_params)
+                # CRITICAL: Apply mask to show only flood-prone areas (> 10% occurrence)
+                # This makes safe/dry pixels transparent
+                masked_flood = projected_flood.updateMask(projected_flood.gte(vis_params['min']))
+                
+                # Generate Map ID with visualization parameters
+                map_id = masked_flood.getMapId(vis_params)
                 
                 # Extract tile URL
                 tile_url = map_id['tile_fetcher'].url_format
                 
                 layers[str(year)] = tile_url
-                print(f"[Timelapse flood] Generated tile URL for {year}")
+                print(f"[Timelapse flood] Generated masked tile URL for {year}")
         
         else:
             raise ValueError(f"Unsupported hazard type: {hazard_type}. Supported: 'heat', 'flood'")
