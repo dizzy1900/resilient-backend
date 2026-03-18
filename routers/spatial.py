@@ -9,6 +9,7 @@ from typing import Dict
 
 import ee
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -127,10 +128,10 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
 
 
 @router.get("/api/v1/eo/ndvi")
-def eo_ndvi(lat: float, lon: float):
+async def eo_ndvi(lat: float, lon: float):
     """Return a 12-month NDVI time-series from MODIS via Google Earth Engine."""
     try:
-        series = get_ndvi_timeseries(lat, lon)
+        series = await run_in_threadpool(get_ndvi_timeseries, lat, lon)
         return {"status": "success", "source": "gee", "data": series}
     except Exception as exc:
         print(f"[EO/NDVI] GEE request failed for lat={lat}, lon={lon}: {exc}", flush=True)
@@ -141,14 +142,14 @@ def eo_ndvi(lat: float, lon: float):
 
 
 @router.get("/api/v1/spatial/timelapse/{hazard_type}", response_model=TimelapseResponse)
-def get_climate_timelapse(hazard_type: str) -> dict:
+async def get_climate_timelapse(hazard_type: str) -> dict:
     """Get global climate projection tile URLs for time-lapse visualization."""
     try:
         valid_hazards = ["heat", "flood"]
         if hazard_type not in valid_hazards:
             raise HTTPException(status_code=400, detail=f"Invalid hazard type: {hazard_type}. Supported: {', '.join(valid_hazards)}")
 
-        tile_layers = calculate_climate_timelapse(hazard_type)
+        tile_layers = await run_in_threadpool(calculate_climate_timelapse, hazard_type)
         return {"hazard": hazard_type, "layers": tile_layers}
 
     except HTTPException:

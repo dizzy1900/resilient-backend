@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 import joblib
 import numpy as np
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -112,7 +113,7 @@ class StartBatchRequest(BaseModel):
 
 
 @router.post("/get-hazard")
-def get_hazard(req: GetHazardRequest):
+async def get_hazard(req: GetHazardRequest):
     """Get climate hazard data for a location using GEE."""
     try:
         lat = req.lat
@@ -122,7 +123,8 @@ def get_hazard(req: GetHazardRequest):
         start_date = end_date - timedelta(days=365)
 
         try:
-            weather_data = get_weather_data(
+            weather_data = await run_in_threadpool(
+                get_weather_data,
                 lat=lat, lon=lon,
                 start_date=start_date.strftime("%Y-%m-%d"),
                 end_date=end_date.strftime("%Y-%m-%d"),
@@ -137,7 +139,7 @@ def get_hazard(req: GetHazardRequest):
             hazard_metrics = FALLBACK_WEATHER.copy()
 
         try:
-            terrain_data = get_terrain_data(lat=lat, lon=lon)
+            terrain_data = await run_in_threadpool(get_terrain_data, lat=lat, lon=lon)
             hazard_metrics["elevation_m"] = terrain_data["elevation_m"]
             hazard_metrics["soil_ph"] = terrain_data["soil_ph"]
         except Exception as terrain_error:
@@ -158,7 +160,7 @@ def get_hazard(req: GetHazardRequest):
 
 
 @router.post("/predict")
-def predict(req: PredictRequest, user: User = Depends(get_current_user)):
+async def predict(req: PredictRequest, user: User = Depends(get_current_user)):
     """Predict crop yield and calculate avoided loss."""
     try:
         crop_type = req.crop_type.lower()
@@ -181,13 +183,13 @@ def predict(req: PredictRequest, user: User = Depends(get_current_user)):
             try:
                 end_date = datetime.now()
                 start_date = end_date - timedelta(days=365)
-                weather_data = get_weather_data(lat=lat, lon=lon, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
+                weather_data = await run_in_threadpool(get_weather_data, lat=lat, lon=lon, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
                 base_temp = weather_data["max_temp_celsius"]
                 base_rain = weather_data["total_precip_mm"]
                 data_source = "gee_auto_lookup"
 
                 try:
-                    monthly_data = get_monthly_data(lat, lon)
+                    monthly_data = await run_in_threadpool(get_monthly_data, lat, lon)
                 except Exception as monthly_error:
                     print(f"Monthly data error: {monthly_error}", file=sys.stderr, flush=True)
 
@@ -221,7 +223,7 @@ def predict(req: PredictRequest, user: User = Depends(get_current_user)):
 
             if has_location and req.elevation is None and req.elevation_m is None:
                 try:
-                    terrain_data = get_terrain_data(lat=location_lat, lon=location_lon)
+                    terrain_data = await run_in_threadpool(get_terrain_data, lat=location_lat, lon=location_lon)
                     elevation = terrain_data["elevation_m"] if terrain_data["elevation_m"] else 1200.0
                     soil_ph = terrain_data["soil_ph"] if terrain_data["soil_ph"] else 6.0
                 except Exception as terrain_error:
@@ -304,7 +306,7 @@ def predict(req: PredictRequest, user: User = Depends(get_current_user)):
         if has_location and temp_increase != 0.0:
             try:
                 print(f"[SPATIAL] Running spatial analysis for lat={location_lat}, lon={location_lon}, temp_increase={temp_increase}", file=sys.stderr, flush=True)
-                spatial_analysis = analyze_spatial_viability(location_lat, location_lon, temp_increase)
+                spatial_analysis = await run_in_threadpool(analyze_spatial_viability, location_lat, location_lon, temp_increase)
             except Exception as spatial_error:
                 print(f"Spatial analysis error: {spatial_error}", file=sys.stderr, flush=True)
 
@@ -365,7 +367,7 @@ def start_batch(req: StartBatchRequest, user: User = Depends(get_current_user)):
 
 
 @router.post("/predict-portfolio")
-def predict_portfolio(req: PredictPortfolioRequest, user: User = Depends(get_current_user)):
+async def predict_portfolio(req: PredictPortfolioRequest, user: User = Depends(get_current_user)):
     """Analyze portfolio diversification across multiple locations."""
     try:
         locations = req.locations
@@ -385,7 +387,7 @@ def predict_portfolio(req: PredictPortfolioRequest, user: User = Depends(get_cur
             try:
                 end_date = datetime.now()
                 start_date = end_date - timedelta(days=365)
-                weather_data = get_weather_data(lat=lat, lon=lon, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
+                weather_data = await run_in_threadpool(get_weather_data, lat=lat, lon=lon, start_date=start_date.strftime("%Y-%m-%d"), end_date=end_date.strftime("%Y-%m-%d"))
                 base_temp = weather_data["max_temp_celsius"]
                 base_rain = weather_data["total_precip_mm"]
             except Exception as weather_error:
