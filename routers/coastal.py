@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
@@ -75,7 +76,7 @@ class PredictCoastalFloodRequest(BaseModel):
 
 
 @router.post("/predict-coastal")
-def predict_coastal(req: PredictCoastalRunupRequest, user: User = Depends(get_current_user)):
+async def predict_coastal(req: PredictCoastalRunupRequest, user: User = Depends(get_current_user)):
     """Predict coastal runup elevation with and without mangrove protection."""
     if coastal_pkl_model is None:
         return legacy_error(500, "Coastal model file not found. Ensure coastal_surrogate.pkl exists.", "MODEL_NOT_FOUND")
@@ -96,7 +97,7 @@ def predict_coastal(req: PredictCoastalRunupRequest, user: User = Depends(get_cu
         if 0 < mangrove_width < 10:
             mangrove_width = 10
 
-        coastal_data = get_coastal_params(lat, lon)
+        coastal_data = await run_in_threadpool(get_coastal_params, lat, lon)
         slope = coastal_data["slope_pct"]
         wave_height = coastal_data["max_wave_height"]
 

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
@@ -46,7 +47,7 @@ class PredictHealthRequest(BaseModel):
 
 
 @router.post("/predict-health")
-def predict_health(req: PredictHealthRequest, user: User = Depends(get_current_user)):
+async def predict_health(req: PredictHealthRequest, user: User = Depends(get_current_user)):
     """Predict climate-related health impacts including heat stress and malaria risk.
 
     Now includes Cooling CAPEX vs. Productivity OPEX Cost-Benefit Analysis.
@@ -99,7 +100,8 @@ def predict_health(req: PredictHealthRequest, user: User = Depends(get_current_u
             end_date = datetime.now()
             start_date = end_date - timedelta(days=365)
 
-            weather_data = get_weather_data(
+            weather_data = await run_in_threadpool(
+                get_weather_data,
                 lat=lat,
                 lon=lon,
                 start_date=start_date.strftime("%Y-%m-%d"),
