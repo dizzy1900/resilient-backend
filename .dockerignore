@@ -1,0 +1,62 @@
+# Version control
+.git
+.gitignore
+
+# Python artefacts
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+env
+*.egg-info
+dist
+build
+
+# Testing / linting
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+.tox
+.nox
+
+# IDE / OS
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Credentials & env files
+.env
+.env.*
+credentials.json
+*credentials*.json
+.adaptmetric
+
+# Docs & markdown (not needed at runtime)
+*.md
+docs
+site
+_build
+
+# Pre-trained models (downloaded at runtime via start.sh)
+*.pkl
+
+# Large data artefacts
+*.sqlite
+*.sqlite3
+*.db
+
+# Docker
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+
+# CI / security reports
+bandit-report.json
+safety-report.json
+trivy-results.sarif
