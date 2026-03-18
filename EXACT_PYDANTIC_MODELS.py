@@ -8,9 +8,8 @@ Generated: 2026-03-04
 Source: /Users/david/resilient-backend/api.py
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional
 
+from pydantic import BaseModel, Field
 
 # ============================================================================
 # FINANCE ENDPOINTS
@@ -19,13 +18,13 @@ from typing import Optional
 class CBARequest(BaseModel):
     """
     Request for Cost-Benefit Analysis time series.
-    
+
     Endpoint: POST /api/v1/finance/cba-series
     Content-Type: application/json
-    
+
     ⚠️ NO lat/lon REQUIRED - This is a purely financial endpoint
     """
-    
+
     # CORE FINANCIAL PARAMETERS
     capex: float = Field(
         500000.0,
@@ -55,7 +54,7 @@ class CBARequest(BaseModel):
         le=1.0,
         description="Fraction of damage the intervention prevents"
     )
-    
+
     # PARAMETRIC INSURANCE
     base_insurance_premium: float = Field(
         50000.0,
@@ -67,7 +66,7 @@ class CBARequest(BaseModel):
         le=1.0,
         description="Premium reduction from intervention (e.g. 0.25 for 25%)"
     )
-    
+
     # GREEN BOND FINANCING
     standard_interest_rate: float = Field(
         0.06,
@@ -83,7 +82,7 @@ class CBARequest(BaseModel):
         le=50,
         description="Bond repayment period in years"
     )
-    
+
     # CARBON CREDIT REVENUE (Layered Value Stacking)
     annual_carbon_credits: float = Field(
         0.0,
@@ -98,7 +97,7 @@ class CBARequest(BaseModel):
 class CVaRRequest(BaseModel):
     """
     Request for Climate Value at Risk Monte Carlo simulation.
-    
+
     Endpoint: POST /api/v1/finance/cvar-simulation
     Content-Type: application/json
     """
@@ -204,7 +203,7 @@ CRITICAL VALIDATION RULES:
    - 8% = 0.08
    - 25% = 0.25
    - 80% = 0.80
-   
+
 2. FIELD NAMES MUST BE SNAKE_CASE:
    - discount_rate (not discountRate)
    - lifespan_years (not lifespanYears)
@@ -271,11 +270,11 @@ PORTFOLIO_CSV = """lat,lon,asset_value,crop_type,scenario_year,temp_delta,rain_p
 if __name__ == "__main__":
     # Test Pydantic validation
     import json
-    
+
     print("=" * 80)
     print("TESTING PYDANTIC MODELS")
     print("=" * 80)
-    
+
     # Test CBA minimal payload
     print("\n1. Testing CBARequest (minimal):")
     try:
@@ -284,7 +283,7 @@ if __name__ == "__main__":
         print(json.dumps(cba_minimal.model_dump(), indent=2))
     except Exception as e:
         print(f"❌ INVALID: {e}")
-    
+
     # Test CBA full payload
     print("\n2. Testing CBARequest (full):")
     try:
@@ -293,7 +292,7 @@ if __name__ == "__main__":
         print(json.dumps(cba_full.model_dump(), indent=2))
     except Exception as e:
         print(f"❌ INVALID: {e}")
-    
+
     # Test CVaR payload
     print("\n3. Testing CVaRRequest:")
     try:
@@ -302,7 +301,7 @@ if __name__ == "__main__":
         print(json.dumps(cvar.model_dump(), indent=2))
     except Exception as e:
         print(f"❌ INVALID: {e}")
-    
+
     # Test INVALID payload (percentage as integer)
     print("\n4. Testing INVALID payload (percentage as integer):")
     try:
@@ -320,7 +319,7 @@ if __name__ == "__main__":
         print("   but semantically incorrect (8 means 800%, not 8%)")
     except Exception as e:
         print(f"❌ INVALID: {e}")
-    
+
     print("\n" + "=" * 80)
     print("TESTING COMPLETE")
     print("=" * 80)
