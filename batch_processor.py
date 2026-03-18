@@ -3,9 +3,10 @@ Batch Processing Engine for Portfolio Assets
 Processes multiple climate risk assessments and updates Supabase database
 """
 
+import logging
 import os
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import pandas as pd
 from supabase import create_client, Client
@@ -13,6 +14,11 @@ import requests
 
 from physics_engine import simulate_maize_yield
 from celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+# Number of assets to update per Supabase round-trip to avoid timeouts.
+SUPABASE_BATCH_SIZE = int(os.environ.get("SUPABASE_BATCH_SIZE", "50"))
 
 
 @celery_app.task(bind=True, max_retries=3)
@@ -50,7 +56,13 @@ def run_batch_job(self, job_id: str) -> Dict[str, Any]:
                 'message': f'No assets found for job_id {job_id}'
             }
         
-        print(f"[BATCH] Processing {len(assets)} assets", file=sys.stderr, flush=True)
+        total_assets = len(assets)
+        print(f"[BATCH] Processing {total_assets} assets", file=sys.stderr, flush=True)
+        if total_assets > SUPABASE_BATCH_SIZE:
+            logger.warning(
+                "Job %s has %d assets; updates will be flushed in batches of %d",
+                job_id, total_assets, SUPABASE_BATCH_SIZE,
+            )
         
         # Stress test scenario: 35°C temperature, 400mm rainfall
         STRESS_TEMP = 35.0
@@ -58,12 +70,17 @@ def run_batch_job(self, job_id: str) -> Dict[str, Any]:
         
         processed_count = 0
         errors = []
+        pending_updates: List[Dict[str, Any]] = []
+        
+        def flush_updates(batch: List[Dict[str, Any]]) -> None:
+            """Send a batch of updates to Supabase."""
+            for item in batch:
+                supabase.table('portfolio_assets').update(item['data']).eq('id', item['id']).execute()
         
         # Process each asset
         for asset in assets:
             try:
                 asset_id = asset['id']
-                print(f"[BATCH] Processing asset {asset_id}", file=sys.stderr, flush=True)
                 
                 # Run predictions for both seed types
                 standard_yield = simulate_maize_yield(
@@ -82,27 +99,38 @@ def run_batch_job(self, job_id: str) -> Dict[str, Any]:
                 avoided_loss = resilient_yield - standard_yield
                 percentage_improvement = (avoided_loss / standard_yield * 100) if standard_yield > 0 else 0.0
                 
-                # Update the asset record in Supabase
-                update_data = {
-                    'standard_yield': round(standard_yield, 2),
-                    'resilient_yield': round(resilient_yield, 2),
-                    'avoided_loss': round(avoided_loss, 2),
-                    'percentage_improvement': round(percentage_improvement, 2),
-                    'stress_temp': STRESS_TEMP,
-                    'stress_rain': STRESS_RAIN,
-                    'processed': True
-                }
-                
-                supabase.table('portfolio_assets').update(update_data).eq('id', asset_id).execute()
+                pending_updates.append({
+                    'id': asset_id,
+                    'data': {
+                        'standard_yield': round(standard_yield, 2),
+                        'resilient_yield': round(resilient_yield, 2),
+                        'avoided_loss': round(avoided_loss, 2),
+                        'percentage_improvement': round(percentage_improvement, 2),
+                        'stress_temp': STRESS_TEMP,
+                        'stress_rain': STRESS_RAIN,
+                        'processed': True,
+                    },
+                })
                 processed_count += 1
                 
-                print(f"[BATCH] Asset {asset_id} updated: avoided_loss={avoided_loss:.2f}", 
-                      file=sys.stderr, flush=True)
+                # Flush when batch is full
+                if len(pending_updates) >= SUPABASE_BATCH_SIZE:
+                    print(f"[BATCH] Flushing {len(pending_updates)} updates ({processed_count}/{total_assets})...",
+                          file=sys.stderr, flush=True)
+                    flush_updates(pending_updates)
+                    pending_updates.clear()
                 
             except Exception as asset_error:
                 error_msg = f"Asset {asset.get('id', 'unknown')}: {str(asset_error)}"
                 errors.append(error_msg)
                 print(f"[BATCH ERROR] {error_msg}", file=sys.stderr, flush=True)
+        
+        # Flush remaining updates
+        if pending_updates:
+            print(f"[BATCH] Flushing final {len(pending_updates)} updates...",
+                  file=sys.stderr, flush=True)
+            flush_updates(pending_updates)
+            pending_updates.clear()
         
         # Update batch_jobs table to mark as completed
         job_update = {

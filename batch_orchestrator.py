@@ -2,6 +2,7 @@
 
 import csv
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -9,6 +10,10 @@ from dataclasses import dataclass
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+CHUNK_SIZE = int(os.environ.get("ATLAS_CHUNK_SIZE", "100"))
 
 
 SCENARIO_YEAR = int(os.environ.get("ATLAS_SCENARIO_YEAR", "2050"))
@@ -51,8 +56,14 @@ def read_targets(csv_path: Path) -> List[Target]:
                 )
             )
 
-    if len(targets) != 20:
-        raise ValueError(f"Expected 20 targets in {csv_path}, found {len(targets)}")
+    if not targets:
+        raise ValueError(f"No targets found in {csv_path}")
+
+    if len(targets) > CHUNK_SIZE:
+        logger.warning(
+            "CSV %s contains %d targets (> %d). They will be processed in chunks.",
+            csv_path, len(targets), CHUNK_SIZE,
+        )
 
     return targets
 
@@ -138,10 +149,14 @@ def main() -> None:
 
     targets = read_targets(targets_csv)
 
-    # Use a process pool to parallelize runs.
+    # Process in chunks to stay within resource limits.
     workers = min(cpu_count(), len(targets))
-    with Pool(processes=workers) as pool:
-        results = list(pool.imap_unordered(run_one_target, targets))
+    results: List[Dict[str, Any]] = []
+    for i in range(0, len(targets), CHUNK_SIZE):
+        chunk = targets[i : i + CHUNK_SIZE]
+        print(f"Processing chunk {i // CHUNK_SIZE + 1} ({len(chunk)} targets)...")
+        with Pool(processes=workers) as pool:
+            results.extend(pool.imap_unordered(run_one_target, chunk))
 
     # Deterministic order for diffing/debugging
     results.sort(key=lambda r: (r.get("target", {}).get("project_type", ""), r.get("target", {}).get("name", "")))

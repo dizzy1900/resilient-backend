@@ -8,6 +8,7 @@ for frontend compatibility.
 
 import csv
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -15,6 +16,10 @@ from dataclasses import dataclass
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+CHUNK_SIZE = int(os.environ.get("ATLAS_CHUNK_SIZE", "100"))
 
 
 SCENARIO_YEAR = int(os.environ.get("ATLAS_SCENARIO_YEAR", "2050"))
@@ -34,12 +39,11 @@ class Target:
     crop_type: Optional[str]
 
 
-def read_targets(csv_path: Path, expected_count: int = 100) -> List[Target]:
+def read_targets(csv_path: Path) -> List[Target]:
     """Read targets from CSV file.
     
     Args:
         csv_path: Path to CSV file with columns: name, lat, lon, project_type, crop_type
-        expected_count: Expected number of targets (default 100)
     
     Returns:
         List of Target objects
@@ -65,8 +69,14 @@ def read_targets(csv_path: Path, expected_count: int = 100) -> List[Target]:
                 )
             )
 
-    if len(targets) != expected_count:
-        raise ValueError(f"Expected {expected_count} targets in {csv_path}, found {len(targets)}")
+    if not targets:
+        raise ValueError(f"No targets found in {csv_path}")
+
+    if len(targets) > CHUNK_SIZE:
+        logger.warning(
+            "CSV %s contains %d targets (> %d). They will be processed in chunks.",
+            csv_path, len(targets), CHUNK_SIZE,
+        )
 
     return targets
 
@@ -158,15 +168,19 @@ def main() -> None:
     out_json = repo_root / "global_atlas_v2.json"
 
     print(f"Reading targets from {targets_csv}...")
-    targets = read_targets(targets_csv, expected_count=100)
+    targets = read_targets(targets_csv)
     print(f"Loaded {len(targets)} targets")
 
-    # Use a process pool to parallelize runs
+    # Process in chunks to stay within resource limits.
     workers = min(cpu_count(), len(targets))
     print(f"Running with {workers} parallel workers...")
-    
-    with Pool(processes=workers) as pool:
-        results = list(pool.imap_unordered(run_one_target, targets))
+
+    results: List[Dict[str, Any]] = []
+    for i in range(0, len(targets), CHUNK_SIZE):
+        chunk = targets[i : i + CHUNK_SIZE]
+        print(f"Processing chunk {i // CHUNK_SIZE + 1} ({len(chunk)} targets)...")
+        with Pool(processes=workers) as pool:
+            results.extend(pool.imap_unordered(run_one_target, chunk))
 
     # Deterministic order for diffing/debugging (sort by project_type, then name)
     results.sort(key=lambda r: (
