@@ -10,7 +10,16 @@ from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "local-dev-secret-change-me-in-production")
+# Check if we are in a production environment (Railway sets this, or we can set it)
+IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"
+
+# In production, strictly require the environment variable. In dev, allow the fallback.
+if IS_PRODUCTION:
+    SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+    if not SECRET_KEY:
+        raise ValueError("CRITICAL: JWT_SECRET_KEY environment variable is not set in production!")
+else:
+    SECRET_KEY = os.getenv("JWT_SECRET_KEY", "local-dev-secret-change-me-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
 
