@@ -21,10 +21,13 @@ RUN python -m venv /opt/venv \
 FROM python:3.12-slim
 
 # System libraries required at runtime by geospatial stack and WeasyPrint
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgdal35 \
-        libgeos3.12.2 \
-        libproj25 \
+# Use a subshell to resolve versioned package names dynamically so the
+# Dockerfile stays portable across Debian releases.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        $(apt-cache search --names-only '^libgdal[0-9][0-9]*$' | awk '{print $1}' | head -1) \
+        $(apt-cache search --names-only '^libgeos-c1' | awk '{print $1}' | head -1) \
+        $(apt-cache search --names-only '^libproj[0-9][0-9]*$' | awk '{print $1}' | head -1) \
         libcairo2 \
         libpango-1.0-0 \
         libpangocairo-1.0-0 \
