@@ -104,7 +104,7 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
 PyJWT==2.9.0
 SQLAlchemy==2.0.36
-aiosqlite==0.20.0
+aiosqlite==0.22.1
 asyncpg==0.30.0            # Async PostgreSQL driver for SQLAlchemy (production)
 greenlet==3.0.3          # Required for async SQLAlchemy operations
 
