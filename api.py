@@ -21,7 +21,7 @@ import json
 import asyncio
 from typing import Literal, Optional, Dict, Any, List, Tuple
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import pandas as pd
@@ -68,9 +68,9 @@ from flood_engine import (
 )
 from financial_engine import calculate_roi_metrics, calculate_npv, calculate_payback_period
 
-from auth import router as auth_router
+from auth import get_current_user, router as auth_router
 from database import Base, engine, async_session
-from models import SupplyChainNode, SupplyChainEdge
+from models import User, SupplyChainNode, SupplyChainEdge
 import networkx as nx
 import uuid as uuid_lib
 import csv
@@ -1244,7 +1244,7 @@ def health() -> dict:
 
 
 @app.post("/simulate")
-def run_simulation(req: SimulationRequest) -> dict:
+def run_simulation(req: SimulationRequest, user: User = Depends(get_current_user)) -> dict:
     """Run a single yield simulation.
 
     Weather retrieval is intentionally simplified for now (fallback values) so the
@@ -1359,7 +1359,7 @@ AGRI_BASELINE_YIELD_VALUE_FLOOR = 500_000.0
 
 
 @app.post("/predict-agri", response_model=PredictAgriResponse)
-def predict_agri(req: PredictAgriRequest) -> PredictAgriResponse:
+def predict_agri(req: PredictAgriRequest, user: User = Depends(get_current_user)) -> PredictAgriResponse:
     """Crop Switching What-If Engine: compare current crop yield under climate stress
     with a proposed alternative (e.g. Drought-Resistant Sorghum, Heat-Tolerant Wheat).
     Returns stressed yield, adjusted yield after switch, transition CAPEX, avoided revenue loss, and risk reduction %.
@@ -2199,7 +2199,7 @@ def get_hazard(req: GetHazardRequest):
 
 
 @app.post("/predict")
-def predict(req: PredictRequest):
+def predict(req: PredictRequest, user: User = Depends(get_current_user)):
     """Predict crop yield and calculate avoided loss.
 
     Supports two modes:
@@ -2481,7 +2481,7 @@ def predict(req: PredictRequest):
 
 
 @app.post("/predict-coastal")
-def predict_coastal(req: PredictCoastalRunupRequest):
+def predict_coastal(req: PredictCoastalRunupRequest, user: User = Depends(get_current_user)):
     """Predict coastal runup elevation with and without mangrove protection."""
     if coastal_pkl_model is None:
         return _legacy_error(500, "Coastal model file not found. Ensure coastal_surrogate.pkl exists.", "MODEL_NOT_FOUND")
@@ -2873,7 +2873,7 @@ def predict_flash_flood(req: PredictFlashFloodRequest):
 
 
 @app.post("/predict-flood")
-def predict_flood(req: PredictUrbanFloodRequest):
+def predict_flood(req: PredictUrbanFloodRequest, user: User = Depends(get_current_user)):
     """Predict urban flood depth with and without green infrastructure intervention."""
     if flood_pkl_model is None:
         return _legacy_error(500, "Flood model file not found. Ensure flood_surrogate.pkl exists.", "MODEL_NOT_FOUND")
@@ -3052,7 +3052,7 @@ def predict_flood(req: PredictUrbanFloodRequest):
 
 
 @app.post("/start-batch")
-def start_batch(req: StartBatchRequest):
+def start_batch(req: StartBatchRequest, user: User = Depends(get_current_user)):
     """Start a background batch processing job for portfolio assets."""
     try:
         job_id = req.job_id
@@ -3112,7 +3112,7 @@ def calculate_financials(req: CalculateFinancialsRequest):
 
 
 @app.post("/predict-health")
-def predict_health(req: PredictHealthRequest):
+def predict_health(req: PredictHealthRequest, user: User = Depends(get_current_user)):
     """Predict climate-related health impacts including heat stress and malaria risk.
     
     Now includes Cooling CAPEX vs. Productivity OPEX Cost-Benefit Analysis.
@@ -3498,7 +3498,7 @@ def predict_health(req: PredictHealthRequest):
 
 
 @app.post("/predict-portfolio")
-def predict_portfolio(req: PredictPortfolioRequest):
+def predict_portfolio(req: PredictPortfolioRequest, user: User = Depends(get_current_user)):
     """Analyze portfolio diversification across multiple locations.
 
     Simulates 10 years of climate variation for each location and
