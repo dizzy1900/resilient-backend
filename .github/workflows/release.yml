@@ -1,0 +1,126 @@
+name: Release Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  create-release:
+    name: Create New Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Get current version
+        id: get_version
+        run: |
+          CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Calculate new version
+        id: bump_version
+        run: |
+          VERSION="${{ steps.get_version.outputs.current_version }}"
+          VERSION=${VERSION#v}  # Remove 'v' prefix
+          
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          
+          case "${{ github.event.inputs.version_type }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="v${major}.${minor}.${patch}"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREVIOUS_TAG="${{ steps.get_version.outputs.current_version }}"
+          if [ -z "$PREVIOUS_TAG" ] || [ "$PREVIOUS_TAG" = "v0.0.0" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" --no-merges | head -20)
+          else
+            CHANGELOG=$(git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s" --no-merges)
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.bump_version.outputs.new_version }}" -m "Release ${{ steps.bump_version.outputs.new_version }}"
+          git push origin "${{ steps.bump_version.outputs.new_version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.bump_version.outputs.new_version }}
+          name: Release ${{ steps.bump_version.outputs.new_version }}
+          body: |
+            ## 🚀 Release ${{ steps.bump_version.outputs.new_version }}
+            
+            ### 📝 Changes
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ### 📦 Installation
+            
+            ```bash
+            git clone https://github.com/dizzy1900/resilient-backend.git
+            cd resilient-backend
+            git checkout ${{ steps.bump_version.outputs.new_version }}
+            pip install -r requirements.txt
+            bash start.sh
+            ```
+            
+            ### 🐳 Docker
+            
+            ```bash
+            docker pull dizzy1900/resilient-backend:${{ steps.bump_version.outputs.new_version }}
+            docker run -p 8000:8000 dizzy1900/resilient-backend:${{ steps.bump_version.outputs.new_version }}
+            ```
+            
+            ### 📖 Documentation
+            
+            - [API Documentation](https://github.com/dizzy1900/resilient-backend/blob/main/API_CONTRACT_AUDIT.md)
+            - [Quick Start Guide](https://github.com/dizzy1900/resilient-backend/blob/main/QUICK_START_SUPPLY_CHAIN.md)
+          prerelease: ${{ github.event.inputs.prerelease }}
+          generate_release_notes: true

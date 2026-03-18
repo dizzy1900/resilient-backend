@@ -1,0 +1,55 @@
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "dizzy1900"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    # Group minor and patch updates together
+    groups:
+      fastapi-stack:
+        patterns:
+          - "fastapi*"
+          - "starlette*"
+          - "uvicorn*"
+          - "pydantic*"
+      google-cloud:
+        patterns:
+          - "google-*"
+          - "googleapis-*"
+      data-science:
+        patterns:
+          - "numpy*"
+          - "pandas*"
+          - "scipy*"
+          - "scikit-learn*"
+      security:
+        patterns:
+          - "PyJWT*"
+          - "passlib*"
+          - "bcrypt*"
+    # Security updates only for critical vulnerabilities
+    versioning-strategy: increase-if-necessary
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
