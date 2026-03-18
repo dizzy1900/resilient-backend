@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>{{ title }} — {{ subtitle }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2cm 2.5cm;
+    @bottom-center {
+      content: "AdaptMetric — Confidential";
+      font-size: 8pt;
+      color: #999;
+    }
+    @bottom-right {
+      content: "Page " counter(page);
+      font-size: 8pt;
+      color: #999;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    color: #222;
+    line-height: 1.45;
+  }
+
+  /* ---- Header ---- */
+  .report-header {
+    text-align: center;
+    border-bottom: 3px solid #1a6b3c;
+    padding-bottom: 14px;
+    margin-bottom: 28px;
+  }
+  .report-header h1 {
+    font-size: 20pt;
+    color: #1a6b3c;
+    margin-bottom: 4px;
+  }
+  .report-header .subtitle {
+    font-size: 11pt;
+    color: #555;
+    font-style: italic;
+  }
+  .report-header .generated {
+    font-size: 8pt;
+    color: #999;
+    margin-top: 8px;
+  }
+
+  /* ---- Section ---- */
+  .section {
+    margin-bottom: 24px;
+    page-break-inside: avoid;
+  }
+  .section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #fff;
+    background: #1a6b3c;
+    padding: 8px 12px;
+    margin-bottom: 0;
+  }
+
+  /* ---- Tables ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0;
+  }
+  th, td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+    font-size: 10pt;
+  }
+  tr:nth-child(even) { background: #f7faf7; }
+  td.value { text-align: right; font-weight: 600; }
+
+  /* ---- Capital-structure tranche columns ---- */
+  .tranche-table th {
+    background: #e8f0e8;
+    color: #1a6b3c;
+    font-weight: 700;
+    font-size: 9pt;
+    text-transform: uppercase;
+  }
+  .tranche-table td { text-align: right; }
+  .tranche-table td:first-child { text-align: left; }
+
+  /* ---- Status badges ---- */
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 9pt;
+    font-weight: 700;
+  }
+  .badge-compliant { background: #d4edda; color: #155724; }
+  .badge-at-risk   { background: #fff3cd; color: #856404; }
+
+  /* ---- Footer ---- */
+  .disclaimer {
+    margin-top: 36px;
+    padding-top: 12px;
+    border-top: 1px solid #ccc;
+    font-size: 7.5pt;
+    color: #999;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="report-header">
+  <h1>{{ title }}</h1>
+  <div class="subtitle">{{ subtitle }}</div>
+  <div class="generated">Generated {{ generated_at }}</div>
+</div>
+
+<!-- Core Terms -->
+<div class="section">
+  <div class="section-title">Core Terms</div>
+  <table>
+    {% for key, value in core_terms.items() %}
+    <tr>
+      <td>{{ key }}</td>
+      <td class="value">{{ value }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<!-- Capital Structure -->
+<div class="section">
+  <div class="section-title">{{ capital_structure.title }}</div>
+  <table class="tranche-table">
+    <thead>
+      <tr>
+        <th>Tranche</th>
+        <th>Allocation</th>
+        <th>Rate</th>
+        <th>Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in capital_structure.tranches %}
+      <tr>
+        <td>{{ t.name }}</td>
+        <td>{{ t.percentage }}</td>
+        <td>{{ t.rate }}</td>
+        <td>{{ t.amount }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Greenium Impact Analysis -->
+<div class="section">
+  <div class="section-title">{{ greenium_analysis.title }}</div>
+  <table>
+    <tr>
+      <td>Discount Applied</td>
+      <td class="value">{{ greenium_analysis.discount_applied }}</td>
+    </tr>
+    <tr>
+      <td>Lifetime Savings</td>
+      <td class="value">{{ greenium_analysis.lifetime_savings }}</td>
+    </tr>
+    <tr>
+      <td>Current Resilience Score</td>
+      <td class="value">{{ greenium_analysis.current_resilience_score }}</td>
+    </tr>
+    <tr>
+      <td>Covenant Status</td>
+      <td class="value">
+        {% if greenium_analysis.covenant_status == "COMPLIANT" %}
+          <span class="badge badge-compliant">{{ greenium_analysis.covenant_status }}</span>
+        {% else %}
+          <span class="badge badge-at-risk">{{ greenium_analysis.covenant_status }}</span>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+</div>
+
+<!-- Debt Service Metrics -->
+<div class="section">
+  <div class="section-title">{{ financial_metrics.title }}</div>
+  <table>
+    <tr>
+      <td>Annual Debt Service</td>
+      <td class="value">{{ financial_metrics.annual_debt_service }}</td>
+    </tr>
+    <tr>
+      <td>Effective Blended Rate</td>
+      <td class="value">{{ financial_metrics.effective_rate }}</td>
+    </tr>
+    <tr>
+      <td>Total Interest Cost (Lifetime)</td>
+      <td class="value">{{ financial_metrics.total_interest_cost }}</td>
+    </tr>
+  </table>
+</div>
+
+<div class="disclaimer">
+  This document is generated by AdaptMetric and is intended for informational purposes only.
+  It does not constitute financial advice or a binding offer. All figures are model-derived estimates.
+</div>
+
+</body>
+</html>

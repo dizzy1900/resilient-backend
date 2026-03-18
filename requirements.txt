@@ -116,6 +116,11 @@ greenlet==3.0.3          # Required for async SQLAlchemy operations
 uritemplate==4.2.0
 pyparsing==3.3.2
 
+# PDF Generation
+weasyprint==65.0           # HTML-to-PDF engine for server-side report generation
+Jinja2==3.1.6              # HTML template engine for PDF reports
+MarkupSafe==3.0.2          # Required by Jinja2 for safe HTML escaping
+
 # System Info
 distro==1.9.0
 
