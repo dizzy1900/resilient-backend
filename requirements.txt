@@ -53,6 +53,10 @@ scikit-learn==1.8.0    # ML algorithms and surrogate models
 joblib==1.5.3          # Parallel computing and model persistence
 threadpoolctl==3.6.0   # Thread pool control for numpy/scipy
 
+# Task Queue (Background Jobs)
+celery==5.4.0          # Distributed task queue for batch processing
+redis==5.2.1           # Redis client (Celery broker + backend)
+
 # Graph Analysis
 networkx==3.2.1        # Graph algorithms for supply chain cascading failures
 

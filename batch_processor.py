@@ -12,9 +12,11 @@ from supabase import create_client, Client
 import requests
 
 from physics_engine import simulate_maize_yield
+from celery_app import celery_app
 
 
-def run_batch_job(job_id: str) -> Dict[str, Any]:
+@celery_app.task(bind=True, max_retries=3)
+def run_batch_job(self, job_id: str) -> Dict[str, Any]:
     """
     Execute batch processing for all assets in a portfolio job.
     

@@ -6,7 +6,6 @@ import pickle
 import random
 import statistics
 import sys
-import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
@@ -358,10 +357,9 @@ def start_batch(req: StartBatchRequest, user: User = Depends(get_current_user)):
     """Start a background batch processing job for portfolio assets."""
     try:
         job_id = req.job_id
-        thread = threading.Thread(target=run_batch_job, args=(job_id,), daemon=True)
-        thread.start()
-        print(f"[API] Started batch job {job_id} in background thread", file=sys.stderr, flush=True)
-        return JSONResponse(status_code=202, content={"status": "started", "job_id": job_id, "message": "Batch processing started in background. Check batch_jobs table for status."})
+        run_batch_job.delay(job_id)
+        print(f"[API] Queued batch job {job_id} via Celery", file=sys.stderr, flush=True)
+        return JSONResponse(status_code=202, content={"status": "started", "job_id": job_id, "message": "Batch processing queued via Celery. Check batch_jobs table for status."})
     except Exception as e:
         return legacy_error(500, f"Failed to start batch job: {str(e)}", "BATCH_START_ERROR")
 
