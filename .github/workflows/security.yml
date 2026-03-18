@@ -43,6 +43,7 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog OSS
+        if: github.event_name == 'push'
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
@@ -87,6 +88,9 @@ jobs:
     name: Docker Image Security Scan
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
