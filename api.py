@@ -1206,14 +1206,17 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
-# CORS configuration - aggressively permissive for development phase
+# CORS configuration - origins controlled via ALLOWED_ORIGINS environment variable
 # CRITICAL: This MUST be immediately after FastAPI() and before any routers/routes
+# Get allowed origins from environment variable, fallback to localhost for dev
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8080")
+ALLOWED_ORIGINS = [origin.strip() for origin in allowed_origins_str.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins temporarily for debugging
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, OPTIONS, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth_router)
