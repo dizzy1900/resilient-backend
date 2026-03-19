@@ -23,7 +23,7 @@ h11==0.14.0
 gunicorn==23.0.0
 
 # Google Earth Engine (Geospatial Core)
-earthengine-api==1.7.10
+earthengine-api==1.6.15
 
 # Google Cloud Dependencies (required by earthengine-api)
 google-api-python-client==2.188.0
@@ -38,18 +38,18 @@ googleapis-common-protos==1.72.0
 httplib2==0.31.2
 
 # Data Science Stack (Geospatial Compatible)
-numpy==2.4.1           # Core numerical computing
-pandas==3.0.0          # Data manipulation and analysis
-scipy==1.17.0          # Scientific computing
+numpy==2.0.2           # Core numerical computing
+pandas==2.3.3          # Data manipulation and analysis
+scipy==1.13.1          # Scientific computing
 
 # Geospatial Libraries
 shapely==2.0.6         # Geometric operations and spatial analysis
 geopandas==1.0.1       # Geospatial data manipulation
 fiona==1.10.1          # Geospatial file I/O (required by geopandas)
-pyproj==3.7.0          # Cartographic projections (required by geopandas)
+pyproj==3.6.1          # Cartographic projections (required by geopandas)
 
 # Machine Learning
-scikit-learn==1.8.0    # ML algorithms and surrogate models
+scikit-learn==1.6.1    # ML algorithms and surrogate models
 joblib==1.5.3          # Parallel computing and model persistence
 threadpoolctl==3.6.0   # Thread pool control for numpy/scipy
 
@@ -81,7 +81,7 @@ pydantic>=2.11.7        # Data validation
 email-validator==2.2.0  # Required by Pydantic EmailStr
 
 # Analytics & Monitoring
-posthog==7.6.0         # Product analytics
+posthog==6.9.3         # Product analytics
 backoff==2.2.1         # Retry logic with exponential backoff
 
 # Environment & Configuration
