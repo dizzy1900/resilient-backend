@@ -16,7 +16,7 @@ from gee_connector import get_weather_data
 from financial_engine import calculate_npv
 from routers._shared import legacy_error
 
-router = APIRouter(tags=["Health"])
+router = APIRouter(prefix="/api/v1/health", tags=["Health"])
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -46,7 +46,7 @@ class PredictHealthRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/predict-health")
+@router.post("/predict")
 async def predict_health(req: PredictHealthRequest, user: User = Depends(get_current_user)):
     """Predict climate-related health impacts including heat stress and malaria risk.
 

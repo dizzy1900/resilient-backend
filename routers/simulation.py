@@ -22,7 +22,7 @@ from lifespan_depreciation import (
     flood_has_intervention_rescue,
 )
 
-router = APIRouter(tags=["Simulation"])
+router = APIRouter(prefix="/api/v1/simulation", tags=["Simulation"])
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -89,7 +89,7 @@ class PolygonRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/simulate")
+@router.post("/run")
 def run_simulation(req: SimulationRequest, user: User = Depends(get_current_user)) -> dict:
     """Run a single yield simulation."""
     try:
@@ -123,7 +123,7 @@ def run_simulation(req: SimulationRequest, user: User = Depends(get_current_user
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/simulate/coastal")
+@router.post("/coastal")
 def run_coastal_simulation(req: CoastalRequest) -> dict:
     """Run coastal flood risk simulation. Includes dynamic asset depreciation from SLR and intervention."""
     try:
@@ -162,7 +162,7 @@ def run_coastal_simulation(req: CoastalRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/simulate/flood")
+@router.post("/flood")
 def run_flood_simulation(req: FloodRequest) -> dict:
     """Run flash flood risk simulation. Includes dynamic asset depreciation from global warming and intervention."""
     try:
@@ -200,7 +200,7 @@ def run_flood_simulation(req: FloodRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/simulate/polygon")
+@router.post("/polygon")
 def run_polygon_simulation(req: PolygonRequest) -> dict:
     """Run polygon-based Digital Twin risk analysis."""
     try:

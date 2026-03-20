@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from gee_connector import get_ndvi_timeseries
 from gee_credentials import load_gee_credentials
 
-router = APIRouter(tags=["Spatial"])
+router = APIRouter(prefix="/api/v1/spatial", tags=["Spatial"])
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -127,7 +127,7 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/api/v1/eo/ndvi")
+@router.get("/ndvi")
 async def eo_ndvi(lat: float, lon: float):
     """Return a 12-month NDVI time-series from MODIS via Google Earth Engine."""
     try:
@@ -141,7 +141,7 @@ async def eo_ndvi(lat: float, lon: float):
         )
 
 
-@router.get("/api/v1/spatial/timelapse/{hazard_type}", response_model=TimelapseResponse)
+@router.get("/timelapse/{hazard_type}", response_model=TimelapseResponse)
 async def get_climate_timelapse(hazard_type: str) -> dict:
     """Get global climate projection tile URLs for time-lapse visualization."""
     try:
