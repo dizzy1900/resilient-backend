@@ -78,7 +78,7 @@ def calculate_climate_timelapse(hazard_type: str) -> Dict[str, str]:
         if hazard_type == "heat":
             baseline_year = 2020
             baseline_temp = (
-                ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY")
+                ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
                 .filterDate(f"{baseline_year}-01-01", f"{baseline_year}-12-31")
                 .select("temperature_2m")
                 .mean()

@@ -158,13 +158,9 @@ def run_agriculture_simulation(req: AgricultureRequest) -> dict:
         output = json.loads(result.stdout)
         return output
         
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to parse simulation output: {str(e)}"
-        ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/predict", response_model=PredictAgriResponse)

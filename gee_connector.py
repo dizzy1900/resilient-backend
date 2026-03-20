@@ -225,7 +225,7 @@ def get_monthly_data(lat: float, lon: float) -> dict:
     end_date = f'{year}-12-31'
     
     # Get monthly data from ERA5-Land
-    monthly_data = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY') \
+    monthly_data = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY_AGGR') \
         .filterBounds(point) \
         .filterDate(start_date, end_date) \
         .select(['total_precipitation', 'volumetric_soil_water_layer_1'])
