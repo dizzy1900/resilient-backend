@@ -48,15 +48,18 @@ from routers.compliance import load_industry_benchmarks
 
 app = FastAPI(title="AdaptMetric Simulation API", version="0.1.0")
 
-# CORS configuration — origins controlled via ALLOWED_ORIGINS environment variable
-# CRITICAL: This MUST be immediately after FastAPI() and before any routers/routes
-allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8080")
-ALLOWED_ORIGINS = [origin.strip() for origin in allowed_origins_str.split(",")]
+# CORS configuration — wide-open for development; restrict in production via ALLOWED_ORIGINS
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = (
+    [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
+    if allowed_origins_str
+    else ["*"]
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from tcfd_generator import BlendedFinanceResponse, generate_green_bond_term_sheet
 from pdf_generator import generate_tcfd_pdf
 
-router = APIRouter(tags=["Export"])
+router = APIRouter(prefix="/api/v1/export", tags=["Export"])
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ class PDFExportRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/api/v1/export/pdf")
+@router.post("/pdf")
 def export_tcfd_pdf(req: PDFExportRequest) -> StreamingResponse:
     """Generate and return a TCFD Green Bond Term Sheet as a PDF."""
 

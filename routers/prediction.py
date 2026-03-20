@@ -26,7 +26,7 @@ from gee_connector import (
 from batch_processor import run_batch_job
 from routers._shared import legacy_error
 
-router = APIRouter(tags=["Prediction"])
+router = APIRouter(prefix="/api/v1/prediction", tags=["Prediction"])
 
 # ---------------------------------------------------------------------------
 # In-process ML models

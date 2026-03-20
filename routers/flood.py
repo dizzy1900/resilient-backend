@@ -16,7 +16,7 @@ from flood_engine import analyze_flash_flood, calculate_rainfall_frequency, anal
 from lifespan_depreciation import flood_lifespan_penalty, apply_lifespan_depreciation, flood_has_intervention_rescue
 from routers._shared import legacy_error, has_opex_intervention
 
-router = APIRouter(tags=["Flood"])
+router = APIRouter(prefix="/api/v1/flood", tags=["Flood"])
 
 # ---------------------------------------------------------------------------
 # ML model
@@ -69,7 +69,7 @@ class PredictUrbanFloodRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/predict-flash-flood")
+@router.post("/predict-flash")
 def predict_flash_flood(req: PredictFlashFloodRequest):
     """Predict flash flood risk using Topographic Wetness Index (TWI) model."""
     try:
@@ -151,7 +151,7 @@ def predict_flash_flood(req: PredictFlashFloodRequest):
         return legacy_error(500, f"Flash flood analysis failed: {str(e)}", "FLASH_FLOOD_ERROR")
 
 
-@router.post("/predict-flood")
+@router.post("/predict")
 def predict_flood(req: PredictUrbanFloodRequest, user: User = Depends(get_current_user)):
     """Predict urban flood depth with and without green infrastructure intervention."""
     if flood_pkl_model is None:

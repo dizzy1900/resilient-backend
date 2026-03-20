@@ -13,7 +13,7 @@ from financial_engine import calculate_roi_metrics
 from price_shock_engine import calculate_price_shock
 from routers._shared import legacy_error
 
-router = APIRouter(tags=["Finance"])
+router = APIRouter(prefix="/api/v1/finance", tags=["Finance"])
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -133,7 +133,7 @@ class CalculateFinancialsRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/api/v1/finance/cba-series")
+@router.post("/cba-series")
 def cba_series(req: CBARequest) -> dict:
     """Calculate a Cost-Benefit Analysis time series for a climate adaptation project."""
     try:
@@ -216,7 +216,7 @@ def cba_series(req: CBARequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/v1/finance/cvar-simulation")
+@router.post("/cvar-simulation")
 def cvar_simulation(req: CVaRRequest) -> dict:
     """Run a Monte Carlo simulation to estimate Climate Value at Risk (CVaR)."""
     try:
@@ -248,7 +248,7 @@ def cvar_simulation(req: CVaRRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/v1/finance/blended-structure", response_model=BlendedFinanceResponse)
+@router.post("/blended-structure", response_model=BlendedFinanceResponse)
 def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceResponse:
     """Calculate blended cost of capital with climate resilience-based interest rate discounts."""
     try:
@@ -352,7 +352,7 @@ def blended_finance_structure(req: BlendedFinanceRequest) -> BlendedFinanceRespo
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/v1/finance/price-shock", response_model=PriceShockResponse)
+@router.post("/price-shock", response_model=PriceShockResponse)
 def price_shock(req: PriceShockRequest) -> dict:
     """Calculate commodity price shock from climate-induced yield loss."""
     try:
@@ -367,7 +367,7 @@ def price_shock(req: PriceShockRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/calculate-financials")
+@router.post("/calculate")
 def calculate_financials(req: CalculateFinancialsRequest):
     """Calculate financial metrics (NPV, BCR, Payback Period) from cash flows."""
     try:

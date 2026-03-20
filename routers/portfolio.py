@@ -13,7 +13,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
-router = APIRouter(tags=["Portfolio"])
+router = APIRouter(prefix="/api/v1/portfolio", tags=["Portfolio"])
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -125,7 +125,7 @@ async def process_single_asset(row_data: dict, row_index: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/api/v1/analyze-portfolio")
+@router.post("/analyze-csv")
 async def analyze_portfolio_csv(file: UploadFile = File(...)) -> dict:
     """Analyze a CSV portfolio upload with concurrent processing."""
     try:
@@ -237,7 +237,7 @@ async def analyze_portfolio_csv(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=500, detail=f"Portfolio analysis failed: {str(e)}") from e
 
 
-@router.post("/api/v1/portfolio/analyze", response_model=PortfolioResponse)
+@router.post("/analyze", response_model=PortfolioResponse)
 def analyze_portfolio(req: PortfolioRequest) -> dict:
     """Analyze macro-portfolio risk across multiple assets with different climate hazards."""
     try:

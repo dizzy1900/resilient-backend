@@ -21,7 +21,7 @@ from lifespan_depreciation import (
 )
 from routers._shared import legacy_error, has_opex_intervention
 
-router = APIRouter(tags=["Coastal"])
+router = APIRouter(prefix="/api/v1/coastal", tags=["Coastal"])
 
 # ---------------------------------------------------------------------------
 # ML model
@@ -75,7 +75,7 @@ class PredictCoastalFloodRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/predict-coastal")
+@router.post("/predict")
 async def predict_coastal(req: PredictCoastalRunupRequest, user: User = Depends(get_current_user)):
     """Predict coastal runup elevation with and without mangrove protection."""
     if coastal_pkl_model is None:
@@ -151,7 +151,7 @@ async def predict_coastal(req: PredictCoastalRunupRequest, user: User = Depends(
         return legacy_error(500, f"Prediction failed: {str(e)}", "PREDICTION_ERROR")
 
 
-@router.post("/predict-coastal-flood")
+@router.post("/predict-flood")
 def predict_coastal_flood(req: PredictCoastalFloodRequest):
     """Predict coastal flood risk based on sea level rise and storm surge."""
     try:
