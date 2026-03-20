@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from typing import Dict, Any, Literal, Optional
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -23,6 +25,18 @@ from lifespan_depreciation import (
 )
 
 router = APIRouter(prefix="/api/v1/simulation", tags=["Simulation"])
+
+
+def _resolve_headless_runner_path() -> Path:
+    """Resolve `headless_runner.py` without relying on current working directory."""
+    this_dir = Path(__file__).resolve().parent
+    for candidate_dir in (this_dir, *this_dir.parents):
+        candidate = candidate_dir / "headless_runner.py"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Unable to locate 'headless_runner.py' relative to the repo."
+    )
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -127,9 +141,10 @@ def run_simulation(req: SimulationRequest, user: User = Depends(get_current_user
 def run_coastal_simulation(req: CoastalRequest) -> dict:
     """Run coastal flood risk simulation. Includes dynamic asset depreciation from SLR and intervention."""
     try:
+        runner_path = _resolve_headless_runner_path()
         cmd = [
-            "python",
-            "headless_runner.py",
+            sys.executable,
+            str(runner_path),
             "--lat", str(req.lat),
             "--lon", str(req.lon),
             "--scenario_year", str(req.scenario_year),
@@ -140,7 +155,7 @@ def run_coastal_simulation(req: CoastalRequest) -> dict:
 
         result = subprocess.run(
             cmd, capture_output=True, text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=str(runner_path.parent)
         )
 
         if result.returncode != 0:
@@ -166,9 +181,10 @@ def run_coastal_simulation(req: CoastalRequest) -> dict:
 def run_flood_simulation(req: FloodRequest) -> dict:
     """Run flash flood risk simulation. Includes dynamic asset depreciation from global warming and intervention."""
     try:
+        runner_path = _resolve_headless_runner_path()
         cmd = [
-            "python",
-            "headless_runner.py",
+            sys.executable,
+            str(runner_path),
             "--lat", str(req.lat),
             "--lon", str(req.lon),
             "--scenario_year", str(req.scenario_year),
@@ -178,7 +194,7 @@ def run_flood_simulation(req: FloodRequest) -> dict:
 
         result = subprocess.run(
             cmd, capture_output=True, text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=str(runner_path.parent)
         )
 
         if result.returncode != 0:

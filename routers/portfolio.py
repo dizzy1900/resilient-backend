@@ -7,13 +7,25 @@ import io
 import json
 import os
 import re
+import sys
 from typing import Dict, Any, List, Literal, Optional
+from pathlib import Path
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["Portfolio"])
+
+
+def _resolve_headless_runner_path() -> Path:
+    """Resolve `headless_runner.py` without relying on current working directory."""
+    this_dir = Path(__file__).resolve().parent
+    for candidate_dir in (this_dir, *this_dir.parents):
+        candidate = candidate_dir / "headless_runner.py"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError("Unable to locate 'headless_runner.py' in the repo.")
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -68,6 +80,7 @@ class PortfolioResponse(BaseModel):
 async def process_single_asset(row_data: dict, row_index: int) -> dict:
     """Process a single portfolio asset asynchronously."""
     try:
+        runner_path = _resolve_headless_runner_path()
         lat = float(row_data["lat"])
         lon = float(row_data["lon"])
         crop_type = str(row_data["crop_type"])
@@ -78,7 +91,8 @@ async def process_single_asset(row_data: dict, row_index: int) -> dict:
         rain_pct_change = float(row_data.get("rain_pct_change", 0.0))
 
         cmd = [
-            "python", "headless_runner.py",
+            sys.executable,
+            str(runner_path),
             "--lat", str(lat), "--lon", str(lon),
             "--scenario_year", str(scenario_year),
             "--project_type", "agriculture",
@@ -97,7 +111,7 @@ async def process_single_asset(row_data: dict, row_index: int) -> dict:
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
+            cwd=str(runner_path.parent),
             env=env,
         )
 

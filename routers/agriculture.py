@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from typing import Dict, Optional, Tuple
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -57,6 +59,23 @@ CLIMATE_PENALTY_BY_CROP: Dict[str, float] = {
 
 # Default penalty for unlisted current crops under stress.
 DEFAULT_CLIMATE_PENALTY = 0.25
+
+
+def _resolve_headless_runner_path() -> Path:
+    """
+    Resolve `headless_runner.py` without relying on the current working directory.
+
+    This fixes container/deployment issues where subprocess CWD changes after refactors.
+    """
+    this_dir = Path(__file__).resolve().parent
+    for candidate_dir in (this_dir, *this_dir.parents):
+        candidate = candidate_dir / "headless_runner.py"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "Unable to locate 'headless_runner.py'. "
+        "Expected it somewhere above 'routers/agriculture.py' in the repo."
+    )
 
 # Proposed crop: (capex_per_hectare_usd, yield_penalty_under_stress_fraction)
 PROPOSED_CROP_ECONOMICS: Dict[str, Tuple[float, float]] = {
@@ -118,10 +137,12 @@ def run_agriculture_simulation(req: AgricultureRequest) -> dict:
     and returns the complete analysis including NPV and ROI calculations.
     """
     try:
+        runner_path = _resolve_headless_runner_path()
+
         # Build command for headless_runner
         cmd = [
-            "python",
-            "headless_runner.py",
+            sys.executable,
+            str(runner_path),
             "--lat", str(req.lat),
             "--lon", str(req.lon),
             "--scenario_year", str(req.scenario_year),
@@ -144,7 +165,7 @@ def run_agriculture_simulation(req: AgricultureRequest) -> dict:
             cmd,
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
+            cwd=str(runner_path.parent),
             env=env
         )
         
