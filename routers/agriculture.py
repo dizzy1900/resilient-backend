@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from models import User
+from resilient_score import calculate_resilient_score
 
 router = APIRouter(prefix="/api/v1/agriculture", tags=["Agriculture"])
 
@@ -156,6 +157,7 @@ def run_agriculture_simulation(req: AgricultureRequest) -> dict:
         
         # Parse the JSON output
         output = json.loads(result.stdout)
+        output["resilient_score_data"] = calculate_resilient_score(output)
         return output
         
     except json.JSONDecodeError as e:

@@ -13,6 +13,8 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
+from resilient_score import calculate_resilient_score
+
 router = APIRouter(prefix="/api/v1/portfolio", tags=["Portfolio"])
 
 # ---------------------------------------------------------------------------
@@ -47,6 +49,7 @@ class PortfolioSummary(BaseModel):
     total_portfolio_value: float
     total_value_at_risk: float
     average_resilience_score: float
+    average_resilient_score: Optional[float] = None
 
 
 class PortfolioVisualizations(BaseModel):
@@ -110,6 +113,10 @@ async def process_single_asset(row_data: dict, row_index: int) -> dict:
         result["row_index"] = row_index
         result["status"] = "success"
         result["input"] = row_data
+        try:
+            result["resilient_score_data"] = calculate_resilient_score(result)
+        except Exception:
+            result["resilient_score_data"] = None
         return result
 
     except json.JSONDecodeError as e:
@@ -215,6 +222,10 @@ async def analyze_portfolio_csv(file: UploadFile = File(...)) -> dict:
 
         average_resilience_score = sum(resilience_scores) / len(resilience_scores) if resilience_scores else 0.0
 
+        scores = [a.get("resilient_score_data", {}).get("resilient_score") for a in results if a.get("resilient_score_data")]
+        scores = [s for s in scores if s is not None]
+        average_resilient_score = round(sum(scores) / len(scores), 1) if scores else None
+
         portfolio_summary = {
             "total_assets": len(records),
             "successful_simulations": len(successful),
@@ -226,6 +237,7 @@ async def analyze_portfolio_csv(file: UploadFile = File(...)) -> dict:
             "total_expected_loss_usd": round(float(total_expected_loss), 2),
             "risk_exposure_pct": round((total_value_at_risk / total_portfolio_value * 100) if total_portfolio_value > 0 else 0.0, 2),
             "crop_distribution": df[crop_col].value_counts().to_dict(),
+            "average_resilient_score": average_resilient_score,
         }
         return {"portfolio_summary": portfolio_summary, "asset_results": results}
 
