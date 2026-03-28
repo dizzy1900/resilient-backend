@@ -38,6 +38,7 @@ from routers.spatial import router as spatial_router
 from routers.compliance import router as compliance_router
 from routers.ai import router as ai_router
 from routers.export import router as export_router
+from routers.forecast import router as forecast_router
 
 # Compliance loader (startup event)
 from routers.compliance import load_industry_benchmarks
@@ -81,6 +82,7 @@ app.include_router(spatial_router)
 app.include_router(compliance_router)
 app.include_router(ai_router)
 app.include_router(export_router)
+app.include_router(forecast_router)
 
 # ---------------------------------------------------------------------------
 # Startup events
