@@ -64,7 +64,7 @@ networkx==3.2.1        # Graph algorithms for supply chain cascading failures
 requests==2.32.5
 urllib3==2.6.3
 certifi==2026.1.4
-charset-normalizer==3.4.4
+charset-normalizer==3.4.6
 idna==3.11
 
 # Database (Supabase Client)
