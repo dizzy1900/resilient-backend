@@ -39,6 +39,7 @@ from routers.compliance import router as compliance_router
 from routers.ai import router as ai_router
 from routers.export import router as export_router
 from routers.forecast import router as forecast_router
+from routers.osint import router as osint_router
 
 # Compliance loader (startup event)
 from routers.compliance import load_industry_benchmarks
@@ -83,6 +84,7 @@ app.include_router(compliance_router)
 app.include_router(ai_router)
 app.include_router(export_router)
 app.include_router(forecast_router)
+app.include_router(osint_router)
 
 # ---------------------------------------------------------------------------
 # Startup events
