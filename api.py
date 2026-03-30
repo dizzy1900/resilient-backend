@@ -41,6 +41,7 @@ from routers.export import router as export_router
 from routers.forecast import router as forecast_router
 from routers.osint import router as osint_router
 from routers.delta import router as delta_router
+from routers.opportunities import router as opportunities_router
 
 # Compliance loader (startup event)
 from routers.compliance import load_industry_benchmarks
@@ -87,6 +88,7 @@ app.include_router(export_router)
 app.include_router(forecast_router)
 app.include_router(osint_router)
 app.include_router(delta_router)
+app.include_router(opportunities_router)
 
 # ---------------------------------------------------------------------------
 # Startup events
