@@ -26,15 +26,15 @@ gunicorn==23.0.0
 earthengine-api==1.6.15
 
 # Google Cloud Dependencies (required by earthengine-api)
-google-api-python-client==2.188.0
-google-api-core==2.29.0
-google-auth==2.47.0
+google-api-python-client==2.193.0
+google-api-core==2.30.0
+google-auth==2.49.1
 google-auth-httplib2==0.3.0
-google-cloud-storage==3.8.0
+google-cloud-storage==3.10.1
 google-cloud-core==2.5.0
 google-resumable-media==2.8.0
 google-crc32c==1.8.0
-googleapis-common-protos==1.72.0
+googleapis-common-protos==1.73.1
 httplib2==0.31.2
 
 # Data Science Stack (Geospatial Compatible)
